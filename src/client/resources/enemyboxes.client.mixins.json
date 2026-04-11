@@ -1,0 +1,13 @@
+{
+	"required": true,
+	"minVersion": "0.8",
+	"package": "com.teeko.enemyboxes.client.mixin",
+	"compatibilityLevel": "JAVA_21",
+	"client": [
+		"MixinLevelRenderer",
+		"GameRendererMixin"
+	],
+	"injectors": {
+		"defaultRequire": 0
+	}
+}
