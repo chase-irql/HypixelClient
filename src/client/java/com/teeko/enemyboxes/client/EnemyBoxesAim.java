@@ -10,7 +10,6 @@ public final class EnemyBoxesAim {
 
     private static float currentYaw = 0f;
     private static float currentPitch = 0f;
-    private static boolean initialized = false;
 
     private static float driftX = 0f;
     private static float driftY = 0f;
@@ -23,7 +22,6 @@ public final class EnemyBoxesAim {
     private static final Random random = new Random();
 
     public static void reset() {
-        initialized = false;
         driftX = 0f;
         driftY = 0f;
         driftVelX = 0f;
@@ -35,14 +33,12 @@ public final class EnemyBoxesAim {
 
         Vec3 camPos = client.player.getEyePosition(1.0f);
 
-        // Aim at chest — 65% up from bottom of AABB
         double chestY = entity.getBoundingBox().minY +
                 (entity.getBoundingBox().maxY - entity.getBoundingBox().minY) * 0.65;
         Vec3 chestPos = new Vec3(entity.getX(), chestY, entity.getZ());
 
         updateDrift();
 
-        // Apply drift and jitter
         Vec3 target = chestPos.add(
                 driftX + (random.nextFloat() - 0.5f) * EnemyBoxesState.jitterStrength,
                 driftY + (random.nextFloat() - 0.5f) * EnemyBoxesState.jitterStrength,
@@ -54,24 +50,20 @@ public final class EnemyBoxesAim {
         double dy = toTarget.y;
         double dz = toTarget.z;
 
-        float targetYaw = (float)(Math.toDegrees(Math.atan2(-dx, dz)));
+        float targetYaw   = (float)(Math.toDegrees(Math.atan2(-dx, dz)));
         float targetPitch = (float)(Math.toDegrees(Math.atan2(-dy, Math.sqrt(dx * dx + dz * dz))));
 
-        // Initialize to current angles on first frame so there's no snap
-        if (!initialized) {
-            currentYaw = client.player.getYRot();
-            currentPitch = client.player.getXRot();
-            initialized = true;
-        }
+        // Always seed from vanilla's current angles so mouse input blends naturally
+        currentYaw   = client.player.getYRot();
+        currentPitch = client.player.getXRot();
 
         float speed = 1.0f - EnemyBoxesState.aimSmoothing;
 
-        // Handle yaw wrap-around
         float yawDiff = targetYaw - currentYaw;
-        while (yawDiff > 180f)  yawDiff -= 360f;
+        while (yawDiff >  180f) yawDiff -= 360f;
         while (yawDiff < -180f) yawDiff += 360f;
 
-        currentYaw  = currentYaw + yawDiff * speed;
+        currentYaw   = currentYaw + yawDiff * speed;
         currentPitch = currentPitch + (targetPitch - currentPitch) * speed;
         currentPitch = Math.max(-90f, Math.min(90f, currentPitch));
 
@@ -91,7 +83,7 @@ public final class EnemyBoxesAim {
         }
 
         float stiffness = 0.04f;
-        float damping = 0.75f;
+        float damping   = 0.75f;
 
         driftVelX += (driftTargetX - driftX) * stiffness;
         driftVelY += (driftTargetY - driftY) * stiffness;

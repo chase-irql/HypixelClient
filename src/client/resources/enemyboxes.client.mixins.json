@@ -5,9 +5,10 @@
 	"compatibilityLevel": "JAVA_21",
 	"client": [
 		"MixinLevelRenderer",
-		"GameRendererMixin"
+		"GameRendererMixin",
+		"MixinMultiPlayerGameMode"
 	],
 	"injectors": {
-		"defaultRequire": 0
+		"defaultRequire": 1
 	}
 }

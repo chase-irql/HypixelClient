@@ -9,19 +9,38 @@ import java.util.Set;
 import java.util.UUID;
 
 public final class EnemyBoxesState {
-    public static boolean enabled = true;
-    public static boolean aimbotEnabled = false;
 
-    public static final Set<String> targetNames = new LinkedHashSet<>();
-
+    // ESP
+    public static boolean enabled       = true;
     public static boolean showFovCircle = true;
-    public static float lockFov = 50f;
-    public static UUID lockedTarget = null;
+    public static float   lockFov       = 50f;
 
-    // Humanization settings
-    public static float aimSmoothing = 0.15f;
-    public static float driftStrength = 0.8f;
-    public static float jitterStrength = 0.3f;
+    // Aimbot
+    public static boolean aimbotEnabled  = false;
+    public static float   aimSmoothing   = 0.15f;
+    public static float   driftStrength  = 0.8f;
+    public static float   jitterStrength = 0.3f;
+
+    // Combat
+    public static boolean autoSwingEnabled       = false;
+    public static boolean requireLineOfSight      = true;
+    public static boolean randomizeReactionDelay  = false;
+    public static int     swingDelayMin           = 80;
+    public static int     swingDelayMax           = 250;
+    public static int     swingDelayMode          = 150;
+    public static int     reactionDelayMin        = 50;
+    public static int     reactionDelayMax        = 300;
+    public static int     reactionDelayMode       = 150;
+
+    // CPS display
+    public static boolean showCps  = false;
+    public static float   cpsX     = 4f;
+    public static float   cpsY     = 4f;
+    public static float   cpsScale = 1.0f;
+
+    // Shared
+    public static final Set<String> targetNames = new LinkedHashSet<>();
+    public static UUID lockedTarget = null;
 
     private EnemyBoxesState() {}
 
@@ -29,19 +48,6 @@ public final class EnemyBoxesState {
         return !targetNames.isEmpty();
     }
 
-    /**
-     * Matches against multiple name sources in priority order:
-     *
-     * 1. getScoreboardName() — set at entity spawn, available at any render distance.
-     *    On Hypixel, fake NPC entities use this as the mob's display name (e.g. "Ice Walker").
-     *
-     * 2. getDisplayName() — team-formatted name, also populated at range on Hypixel
-     *    since they use scoreboard teams (fkt_Ice Walker etc).
-     *
-     * 3. getCustomName() — actual NBT nametag, only for real named entities.
-     *
-     * All checks are case-insensitive substring matches, with § color codes stripped.
-     */
     public static boolean matches(LivingEntity entity) {
         if (!enabled || !hasTarget() || entity == null) return false;
 
@@ -61,10 +67,8 @@ public final class EnemyBoxesState {
         return false;
     }
 
-    /** Strip Minecraft § color/format codes from a string. */
     private static String stripFormatting(String s) {
         if (s == null) return "";
-        // § followed by any character is a formatting code
         return s.replaceAll("§.", "").toLowerCase(Locale.ROOT);
     }
 
