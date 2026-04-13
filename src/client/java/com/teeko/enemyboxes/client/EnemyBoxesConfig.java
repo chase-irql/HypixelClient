@@ -6,6 +6,8 @@ import net.fabricmc.loader.api.FabricLoader;
 
 import java.io.*;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 public final class EnemyBoxesConfig {
 
@@ -16,28 +18,40 @@ public final class EnemyBoxesConfig {
 
     private EnemyBoxesConfig() {}
 
+    private static class TargetEntry {
+        String  name;
+        boolean enabled;
+        TargetEntry(String name, boolean enabled) {
+            this.name    = name;
+            this.enabled = enabled;
+        }
+    }
+
     private static class Data {
         // ESP
         boolean enabled       = true;
         boolean showFovCircle = true;
         float   lockFov       = 50f;
         // Aimbot
-        boolean aimbotEnabled  = false;
-        float   aimSmoothing   = 0.15f;
-        float   driftStrength  = 0.8f;
-        float   jitterStrength = 0.3f;
+        boolean aimbotEnabled    = false;
+        float   aimSmoothingMin  = 0.05f;
+        float   aimSmoothingMode = 0.15f;
+        float   aimSmoothingMax  = 0.30f;
+        float   driftStrength    = 0.05f;
+        float   jitterStrength   = 0.1f;
+        float   aimPriorityBlend = 0.0f;
         // Combat
-        boolean autoSwingEnabled      = false;
-        boolean requireLineOfSight    = true;
+        boolean autoSwingEnabled       = false;
+        boolean requireLineOfSight     = true;
         boolean randomizeReactionDelay = false;
-        int     swingDelayMin         = 80;
-        int     swingDelayMax         = 250;
-        int     swingDelayMode        = 150;
-        int     reactionDelayMin      = 50;
-        int     reactionDelayMax      = 300;
-        int     reactionDelayMode     = 150;
-        // Targets
-        String[] targetNames = new String[0];
+        int     swingDelayMin          = 80;
+        int     swingDelayMax          = 250;
+        int     swingDelayMode         = 150;
+        int     reactionDelayMin       = 50;
+        int     reactionDelayMax       = 300;
+        int     reactionDelayMode      = 150;
+        // Targets — stored as array of {name, enabled} objects
+        TargetEntry[] targets = new TargetEntry[0];
         // CPS
         boolean showCps  = false;
         float   cpsX     = 4f;
@@ -51,9 +65,12 @@ public final class EnemyBoxesConfig {
         d.showFovCircle          = EnemyBoxesState.showFovCircle;
         d.lockFov                = EnemyBoxesState.lockFov;
         d.aimbotEnabled          = EnemyBoxesState.aimbotEnabled;
-        d.aimSmoothing           = EnemyBoxesState.aimSmoothing;
+        d.aimSmoothingMin        = EnemyBoxesState.aimSmoothingMin;
+        d.aimSmoothingMode       = EnemyBoxesState.aimSmoothingMode;
+        d.aimSmoothingMax        = EnemyBoxesState.aimSmoothingMax;
         d.driftStrength          = EnemyBoxesState.driftStrength;
         d.jitterStrength         = EnemyBoxesState.jitterStrength;
+        d.aimPriorityBlend       = EnemyBoxesState.aimPriorityBlend;
         d.autoSwingEnabled       = EnemyBoxesState.autoSwingEnabled;
         d.requireLineOfSight     = EnemyBoxesState.requireLineOfSight;
         d.randomizeReactionDelay = EnemyBoxesState.randomizeReactionDelay;
@@ -63,11 +80,14 @@ public final class EnemyBoxesConfig {
         d.reactionDelayMin       = EnemyBoxesState.reactionDelayMin;
         d.reactionDelayMax       = EnemyBoxesState.reactionDelayMax;
         d.reactionDelayMode      = EnemyBoxesState.reactionDelayMode;
-        d.targetNames            = EnemyBoxesState.targetNames.toArray(new String[0]);
         d.showCps                = EnemyBoxesState.showCps;
         d.cpsX                   = EnemyBoxesState.cpsX;
         d.cpsY                   = EnemyBoxesState.cpsY;
         d.cpsScale               = EnemyBoxesState.cpsScale;
+
+        d.targets = EnemyBoxesState.targets.entrySet().stream()
+                .map(e -> new TargetEntry(e.getKey(), e.getValue()))
+                .toArray(TargetEntry[]::new);
 
         try (Writer w = new FileWriter(CONFIG_PATH.toFile())) {
             GSON.toJson(d, w);
@@ -88,9 +108,12 @@ public final class EnemyBoxesConfig {
             EnemyBoxesState.showFovCircle          = d.showFovCircle;
             EnemyBoxesState.lockFov                = d.lockFov;
             EnemyBoxesState.aimbotEnabled          = d.aimbotEnabled;
-            EnemyBoxesState.aimSmoothing           = d.aimSmoothing;
+            EnemyBoxesState.aimSmoothingMin        = d.aimSmoothingMin;
+            EnemyBoxesState.aimSmoothingMode       = d.aimSmoothingMode;
+            EnemyBoxesState.aimSmoothingMax        = d.aimSmoothingMax;
             EnemyBoxesState.driftStrength          = d.driftStrength;
             EnemyBoxesState.jitterStrength         = d.jitterStrength;
+            EnemyBoxesState.aimPriorityBlend       = d.aimPriorityBlend;
             EnemyBoxesState.autoSwingEnabled       = d.autoSwingEnabled;
             EnemyBoxesState.requireLineOfSight     = d.requireLineOfSight;
             EnemyBoxesState.randomizeReactionDelay = d.randomizeReactionDelay;
@@ -105,11 +128,11 @@ public final class EnemyBoxesConfig {
             EnemyBoxesState.cpsY                   = d.cpsY;
             EnemyBoxesState.cpsScale               = d.cpsScale;
 
-            EnemyBoxesState.targetNames.clear();
-            if (d.targetNames != null) {
-                for (String name : d.targetNames) {
-                    if (name != null && !name.isBlank()) {
-                        EnemyBoxesState.targetNames.add(name);
+            EnemyBoxesState.targets.clear();
+            if (d.targets != null) {
+                for (TargetEntry t : d.targets) {
+                    if (t != null && t.name != null && !t.name.isBlank()) {
+                        EnemyBoxesState.targets.put(t.name, t.enabled);
                     }
                 }
             }

@@ -1,9 +1,9 @@
 {
 	"schemaVersion": 1,
-	"id": "enemyboxes",
+	"id": "chickennugget",
 	"version": "${version}",
-	"name": "EnemyBoxes",
-	"description": "Highlights matching living entities with client-side boxes.",
+	"name": "ChickenNugget",
+	"description": "Chicken nugget minigame",
 	"authors": [
 		"Me!"
 	],

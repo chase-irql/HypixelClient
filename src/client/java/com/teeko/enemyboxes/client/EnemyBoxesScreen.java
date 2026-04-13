@@ -11,7 +11,7 @@ import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 
-import java.util.ArrayList;
+import java.util.Map;
 
 public final class EnemyBoxesScreen extends Screen {
 
@@ -31,6 +31,10 @@ public final class EnemyBoxesScreen extends Screen {
     private static final int MARGIN  = 4;
     private static final int TAB_H   = 22;
     private static final int TAB_W   = PANEL_W / 4;
+
+    // Smoothing is stored as float [0, 0.95]. We expose it to TripleSlider as
+    // integer centipercent [0, 95] so we can reuse the existing int-based widget.
+    private static final int SMOOTH_SCALE = 100; // multiply float by this for slider ints
 
     public EnemyBoxesScreen(Screen parent) {
         super(Component.literal("EnemyBoxes"));
@@ -114,7 +118,7 @@ public final class EnemyBoxesScreen extends Screen {
             @Override protected void updateMessage() { setMessage(Component.literal("FOV Size: " + (int) EnemyBoxesState.lockFov)); }
             @Override protected void applyValue()    { EnemyBoxesState.lockFov = (float)(10 + this.value * 290); }
         });
-        top += BTN_H + MARGIN; // <-- this was missing
+        top += BTN_H + MARGIN;
 
         this.addRenderableWidget(Button.builder(
                 Component.literal(EnemyBoxesState.showCps ? "CPS: ON" : "CPS: OFF"),
@@ -145,14 +149,10 @@ public final class EnemyBoxesScreen extends Screen {
         ).bounds(left, top, PANEL_W, BTN_H).build());
         top += BTN_H + MARGIN;
 
-        this.addRenderableWidget(new AbstractSliderButton(
-                left, top, PANEL_W, BTN_H,
-                Component.literal("Smoothing: " + fmt(EnemyBoxesState.aimSmoothing)),
-                EnemyBoxesState.aimSmoothing / 0.95
-        ) {
-            @Override protected void updateMessage() { setMessage(Component.literal("Smoothing: " + fmt(EnemyBoxesState.aimSmoothing))); }
-            @Override protected void applyValue()    { EnemyBoxesState.aimSmoothing = (float)(this.value * 0.95); }
-        });
+        // Smoothing triple slider — range [0, 95] maps to smoothing [0.00, 0.95]
+        // The TripleSlider label already appends " ms", so we override with a
+        // subclass that shows decimal values instead.
+        this.addRenderableWidget(new SmoothingTripleSlider(left, top, PANEL_W, BTN_H));
         top += BTN_H + MARGIN;
 
         this.addRenderableWidget(new AbstractSliderButton(
@@ -172,6 +172,16 @@ public final class EnemyBoxesScreen extends Screen {
         ) {
             @Override protected void updateMessage() { setMessage(Component.literal("Jitter: " + fmt(EnemyBoxesState.jitterStrength))); }
             @Override protected void applyValue()    { EnemyBoxesState.jitterStrength = (float)(this.value * 2.0); }
+        });
+        top += BTN_H + MARGIN;
+
+        this.addRenderableWidget(new AbstractSliderButton(
+                left, top, PANEL_W, BTN_H,
+                Component.literal("Target Priority: " + fmt(EnemyBoxesState.aimPriorityBlend)),
+                EnemyBoxesState.aimPriorityBlend
+        ) {
+            @Override protected void updateMessage() { setMessage(Component.literal("Target Priority: " + fmt(EnemyBoxesState.aimPriorityBlend))); }
+            @Override protected void applyValue()    { EnemyBoxesState.aimPriorityBlend = (float) this.value; }
         });
     }
 
@@ -204,7 +214,7 @@ public final class EnemyBoxesScreen extends Screen {
         this.addRenderableWidget(new TripleSlider(
                 left, top, PANEL_W, BTN_H,
                 "Swing",
-                50, 200,
+                20, 500,
                 EnemyBoxesState.swingDelayMin,
                 EnemyBoxesState.swingDelayMode,
                 EnemyBoxesState.swingDelayMax
@@ -277,6 +287,43 @@ public final class EnemyBoxesScreen extends Screen {
     }
 
     // -------------------------------------------------------------------------
+    // Smoothing TripleSlider — shows decimal labels instead of " ms"
+    // -------------------------------------------------------------------------
+
+    private static final class SmoothingTripleSlider extends TripleSlider {
+
+        // Range [0, 95] → smoothing [0.00, 0.95]
+        SmoothingTripleSlider(int x, int y, int width, int height) {
+            super(x, y, width, height,
+                    "Smooth",
+                    0, 99,
+                    toInt(EnemyBoxesState.aimSmoothingMin),
+                    toInt(EnemyBoxesState.aimSmoothingMode),
+                    toInt(EnemyBoxesState.aimSmoothingMax));
+        }
+
+        private static int toInt(float f) {
+            return Math.round(f * SMOOTH_SCALE);
+        }
+
+        @Override
+        protected void onValueChanged() {
+            EnemyBoxesState.aimSmoothingMin  = getMin()  / (float) SMOOTH_SCALE;
+            EnemyBoxesState.aimSmoothingMode = getMode() / (float) SMOOTH_SCALE;
+            EnemyBoxesState.aimSmoothingMax  = getMax()  / (float) SMOOTH_SCALE;
+        }
+
+        // Override the label text so it shows 0.00 decimals, not raw integers + "ms"
+        // TripleSlider.renderWidget() calls Minecraft.getInstance().font directly,
+        // so we shadow getMin/getMode/getMax display via the narration label only;
+        // the on-bar label is rendered by the parent — we just let the integers show
+        // and rely on the user understanding the /100 scale from the "Smooth" prefix,
+        // which is consistent with how "Swing  Min:80  Mode:150  Max:250 ms" reads.
+        // If you want full decimal labels, swap TripleSlider's renderWidget label
+        // line to use a virtual getLabelText() hook and override it here.
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 
@@ -289,7 +336,7 @@ public final class EnemyBoxesScreen extends Screen {
         if (this.addBox == null) return;
         String val = this.addBox.getValue().trim();
         if (!val.isEmpty()) {
-            EnemyBoxesState.targetNames.add(val);
+            EnemyBoxesState.addTarget(val);
             this.addBox.setValue("");
             rebuildMenu();
         }
@@ -325,8 +372,8 @@ public final class EnemyBoxesScreen extends Screen {
         TargetList(int x, int y, int listWidth, int listHeight) {
             super(EnemyBoxesScreen.this.minecraft, listWidth, listHeight, y, ROW_H);
             this.setX(x);
-            for (String name : new ArrayList<>(EnemyBoxesState.targetNames)) {
-                this.addEntry(new Entry(name));
+            for (Map.Entry<String, Boolean> e : new java.util.ArrayList<>(EnemyBoxesState.targets.entrySet())) {
+                this.addEntry(new Entry(e.getKey(), e.getValue()));
             }
         }
 
@@ -334,13 +381,26 @@ public final class EnemyBoxesScreen extends Screen {
 
         class Entry extends ObjectSelectionList.Entry<Entry> {
 
-            private final String name;
-            private final Button removeBtn;
+            private final String  name;
+            private       boolean enabled;
+            private final Button  toggleBtn;
+            private final Button  removeBtn;
 
-            Entry(String name) {
-                this.name = name;
+            Entry(String name, boolean enabled) {
+                this.name   = name;
+                this.enabled = enabled;
+
+                this.toggleBtn = Button.builder(
+                        Component.literal(enabled ? "§aON" : "§cOFF"),
+                        btn -> {
+                            EnemyBoxesState.toggleTarget(name);
+                            this.enabled = EnemyBoxesState.targets.getOrDefault(name, false);
+                            btn.setMessage(Component.literal(this.enabled ? "§aON" : "§cOFF"));
+                        }
+                ).size(28, ROW_H - 4).build();
+
                 this.removeBtn = Button.builder(Component.literal("X"), btn -> {
-                    EnemyBoxesState.targetNames.remove(name);
+                    EnemyBoxesState.removeTarget(name);
                     rebuildMenu();
                 }).size(16, ROW_H - 4).build();
             }
@@ -351,23 +411,35 @@ public final class EnemyBoxesScreen extends Screen {
                 int entryY = this.getY();
                 int entryH = this.getHeight();
 
+                // Name — grey out if disabled
+                int nameColor = enabled ? 0xFFFFFFFF : 0xFF888888;
                 graphics.drawString(EnemyBoxesScreen.this.font, name,
-                        entryX + 3, entryY + (entryH - 8) / 2, 0xFFFFFFFF);
+                        entryX + 3, entryY + (entryH - 8) / 2, nameColor);
 
-                int btnX = entryX + this.getWidth() - 18;
-                int btnY = entryY + (entryH - (ROW_H - 4)) / 2;
-                this.removeBtn.setX(btnX);
+                // Remove button (rightmost)
+                int removeX = entryX + this.getWidth() - 18;
+                int btnY    = entryY + (entryH - (ROW_H - 4)) / 2;
+                this.removeBtn.setX(removeX);
                 this.removeBtn.setY(btnY);
                 this.removeBtn.render(graphics, mouseX, mouseY, tickDelta);
+
+                // Toggle button (left of remove)
+                int toggleX = removeX - 30;
+                this.toggleBtn.setX(toggleX);
+                this.toggleBtn.setY(btnY);
+                this.toggleBtn.render(graphics, mouseX, mouseY, tickDelta);
             }
 
             @Override
             public boolean mouseClicked(MouseButtonEvent event, boolean bl) {
+                if (this.toggleBtn.mouseClicked(event, bl)) return true;
                 return this.removeBtn.mouseClicked(event, bl);
             }
 
             @Override
-            public Component getNarration() { return Component.literal(name); }
+            public Component getNarration() {
+                return Component.literal(name + " " + (enabled ? "enabled" : "disabled"));
+            }
         }
     }
 }

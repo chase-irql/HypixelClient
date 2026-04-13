@@ -2,6 +2,9 @@ package com.teeko.enemyboxes.client;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.Random;
@@ -31,15 +34,28 @@ public final class EnemyBoxesAim {
     public static void aimAtEntity(Minecraft client, Entity entity) {
         if (client.player == null) return;
 
+        // Always enforce line-of-sight — aimbot never shoots through walls
+        if (!hasLineOfSight(client, entity)) return;
+
         Vec3 camPos = client.player.getEyePosition(1.0f);
 
-        double chestY = entity.getBoundingBox().minY +
-                (entity.getBoundingBox().maxY - entity.getBoundingBox().minY) * 0.65;
-        Vec3 chestPos = new Vec3(entity.getX(), chestY, entity.getZ());
+        // Primary: aim at head (eye position = center of head hitbox in vanilla)
+        Vec3 headPos = entity.getEyePosition(1.0f);
+        Vec3 toHead  = headPos.subtract(camPos);
+
+        // Fallback: chest position (65% up the bounding box) if head vector is degenerate
+        Vec3 aimPos;
+        if (toHead.lengthSqr() > 0.0001) {
+            aimPos = headPos;
+        } else {
+            double chestY = entity.getBoundingBox().minY +
+                    (entity.getBoundingBox().maxY - entity.getBoundingBox().minY) * 0.65;
+            aimPos = new Vec3(entity.getX(), chestY, entity.getZ());
+        }
 
         updateDrift();
 
-        Vec3 target = chestPos.add(
+        Vec3 target = aimPos.add(
                 driftX + (random.nextFloat() - 0.5f) * EnemyBoxesState.jitterStrength,
                 driftY + (random.nextFloat() - 0.5f) * EnemyBoxesState.jitterStrength,
                 0
@@ -57,7 +73,9 @@ public final class EnemyBoxesAim {
         currentYaw   = client.player.getYRot();
         currentPitch = client.player.getXRot();
 
-        float speed = 1.0f - EnemyBoxesState.aimSmoothing;
+        // Sample smoothing from the triangular distribution each frame
+        float smoothing = nextTriangularSmoothing();
+        float speed = 1.0f - smoothing;
 
         float yawDiff = targetYaw - currentYaw;
         while (yawDiff >  180f) yawDiff -= 360f;
@@ -71,6 +89,46 @@ public final class EnemyBoxesAim {
         client.player.setXRot(currentPitch);
         client.player.yRotO = currentYaw;
         client.player.xRotO = currentPitch;
+    }
+
+    private static boolean hasLineOfSight(Minecraft client, Entity entity) {
+        if (client.level == null || client.player == null) return false;
+
+        Vec3 eyePos    = client.player.getEyePosition(1.0f);
+        Vec3 targetPos = entity.getEyePosition(1.0f);
+
+        BlockHitResult hit = client.level.clip(new ClipContext(
+                eyePos, targetPos,
+                ClipContext.Block.COLLIDER,
+                ClipContext.Fluid.NONE,
+                client.player
+        ));
+
+        return hit.getType() == HitResult.Type.MISS;
+    }
+
+    /**
+     * Returns a smoothing value sampled from the triangular distribution
+     * defined by [aimSmoothingMin, aimSmoothingMode, aimSmoothingMax].
+     * Mirrors the same logic used for swing/reaction delays.
+     */
+    private static float nextTriangularSmoothing() {
+        float lo   = EnemyBoxesState.aimSmoothingMin;
+        float hi   = EnemyBoxesState.aimSmoothingMax;
+        float mode = EnemyBoxesState.aimSmoothingMode;
+
+        // Clamp mode into [lo, hi] in case state gets out of order
+        mode = Math.max(lo, Math.min(hi, mode));
+
+        if (lo >= hi) return lo;
+
+        float fc = (mode - lo) / (hi - lo);
+        float u  = random.nextFloat();
+        if (u < fc) {
+            return lo + (float) Math.sqrt(u * (hi - lo) * (mode - lo));
+        } else {
+            return hi - (float) Math.sqrt((1f - u) * (hi - lo) * (hi - mode));
+        }
     }
 
     private static void updateDrift() {

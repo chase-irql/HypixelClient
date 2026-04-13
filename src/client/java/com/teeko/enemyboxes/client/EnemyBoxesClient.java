@@ -52,7 +52,8 @@ public final class EnemyBoxesClient implements ClientModInitializer {
                     CATEGORY
             ));
 
-    private static long    nextSwingMs      = 0;
+    private static long    lastSwingMs     = 0;
+    private static long    nextSwingDelayMs = -1; // -1 = not yet initialized, sample on first lock
     private static boolean reactionPending  = false;
     private static long    reactionFireMs   = 0;
 
@@ -78,7 +79,8 @@ public final class EnemyBoxesClient implements ClientModInitializer {
             if (!LOCK_ON_KEY.isDown()) {
                 EnemyBoxesState.lockedTarget = null;
                 EnemyBoxesAim.reset();
-                reactionPending = false;
+                reactionPending  = false;
+                nextSwingDelayMs = -1;
             } else {
                 updateLockOn(client);
             }
@@ -111,12 +113,24 @@ public final class EnemyBoxesClient implements ClientModInitializer {
 
     private static void tryAutoSwing(Minecraft client) {
         if (!EnemyBoxesState.autoSwingEnabled) return;
-        if (!EnemyBoxesState.aimbotEnabled) return;
         if (EnemyBoxesState.lockedTarget == null) return;
         if (client.level == null || client.player == null || client.gameMode == null) return;
 
         long now = System.currentTimeMillis();
-        if (now < nextSwingMs) return;
+
+        // Sample an initial delay the first time we have a lock, so we don't
+        // fire instantly on the very first frame of lock acquisition.
+        if (nextSwingDelayMs < 0) {
+            nextSwingDelayMs = nextTriangularDelay(
+                    EnemyBoxesState.swingDelayMin,
+                    EnemyBoxesState.swingDelayMode,
+                    EnemyBoxesState.swingDelayMax
+            );
+            lastSwingMs = now;
+            return;
+        }
+
+        if (now - lastSwingMs < nextSwingDelayMs) return;
 
         for (Entity entity : client.level.entitiesForRendering()) {
             if (!entity.getUUID().equals(EnemyBoxesState.lockedTarget)) continue;
@@ -140,17 +154,18 @@ public final class EnemyBoxesClient implements ClientModInitializer {
                 // Still waiting on reaction delay
                 if (reactionPending && now < reactionFireMs) break;
 
-                // Fire — recordAttack() called automatically via mixin
-                reactionPending = false;
+                // Fire
+                reactionPending  = false;
+                recordAttack();
                 client.gameMode.attack(client.player, entity);
                 client.player.swing(InteractionHand.MAIN_HAND);
-                nextSwingMs = now + nextTriangularDelay(
+                lastSwingMs      = now;
+                nextSwingDelayMs = nextTriangularDelay(
                         EnemyBoxesState.swingDelayMin,
                         EnemyBoxesState.swingDelayMode,
                         EnemyBoxesState.swingDelayMax
                 );
             } else {
-                // Out of range or no LOS — reset so reaction fires again next entry
                 reactionPending = false;
             }
             break;
@@ -176,6 +191,67 @@ public final class EnemyBoxesClient implements ClientModInitializer {
         return hit.getType() == HitResult.Type.MISS;
     }
 
+    /** Returns true if any part of the entity's bounding box (corners, edges,
+     *  or eye position) projects within the FOV circle radius. */
+    private static boolean isInFovCircle(Minecraft client, Entity entity) {
+        Vec3 camPos     = client.player.getEyePosition(1.0f);
+        Vec3 camForward = client.player.getViewVector(1.0f);
+        Vec3 worldUp    = new Vec3(0, 1, 0);
+        Vec3 camRight   = camForward.cross(worldUp).normalize();
+        Vec3 camUp      = camRight.cross(camForward).normalize();
+
+        double halfH       = client.getWindow().getGuiScaledHeight() / 2.0;
+        double fovY        = client.options.fov().get();
+        double tanHalfFovY = Math.tan(Math.toRadians(fovY / 2.0));
+        double fovR        = EnemyBoxesState.lockFov;
+
+        net.minecraft.world.phys.AABB box = entity.getBoundingBox();
+
+        // Project a world point to pixel-space; null = behind camera
+        java.util.function.Function<Vec3, double[]> project = (pt) -> {
+            Vec3 rel = pt.subtract(camPos);
+            if (rel.normalize().dot(camForward) <= 0) return null;
+            double fwd = rel.dot(camForward);
+            double sx  = rel.dot(camRight) / fwd * halfH / tanHalfFovY;
+            double sy  = -rel.dot(camUp)   / fwd * halfH / tanHalfFovY;
+            return new double[]{ sx, sy };
+        };
+
+        Vec3[] corners = {
+                new Vec3(box.minX, box.minY, box.minZ), new Vec3(box.maxX, box.minY, box.minZ),
+                new Vec3(box.minX, box.maxY, box.minZ), new Vec3(box.maxX, box.maxY, box.minZ),
+                new Vec3(box.minX, box.minY, box.maxZ), new Vec3(box.maxX, box.minY, box.maxZ),
+                new Vec3(box.minX, box.maxY, box.maxZ), new Vec3(box.maxX, box.maxY, box.maxZ),
+        };
+        double[][] sc = new double[8][];
+        for (int i = 0; i < 8; i++) sc[i] = project.apply(corners[i]);
+
+        // Check corners
+        for (double[] p : sc) {
+            if (p != null && Math.sqrt(p[0]*p[0] + p[1]*p[1]) <= fovR) return true;
+        }
+
+        // Check edge closest points
+        int[][] edges = {
+                {0,1},{2,3},{4,5},{6,7},
+                {0,2},{1,3},{4,6},{5,7},
+                {0,4},{1,5},{2,6},{3,7}
+        };
+        for (int[] edge : edges) {
+            double[] a = sc[edge[0]], b = sc[edge[1]];
+            if (a == null || b == null) continue;
+            double dx = b[0]-a[0], dy = b[1]-a[1];
+            double lenSq = dx*dx + dy*dy;
+            double t = lenSq > 0 ? Math.max(0, Math.min(1, (-a[0]*dx + -a[1]*dy) / lenSq)) : 0;
+            double cx = a[0] + t*dx, cy = a[1] + t*dy;
+            if (Math.sqrt(cx*cx + cy*cy) <= fovR) return true;
+        }
+
+        // Check eye position
+        double[] eye = project.apply(entity.getEyePosition(1.0f));
+        return eye != null && Math.sqrt(eye[0]*eye[0] + eye[1]*eye[1]) <= fovR;
+    }
+
     private static long nextTriangularDelay(int min, int mode, int max) {
         if (min >= max) return min;
         float fMin  = min;
@@ -189,7 +265,7 @@ public final class EnemyBoxesClient implements ClientModInitializer {
         } else {
             val = fMax - (float) Math.sqrt((1f - u) * (fMax - fMin) * (fMax - fMode));
         }
-        return (long) val;
+        return Math.max(min, (long) val);
     }
 
     // -------------------------------------------------------------------------
@@ -209,7 +285,9 @@ public final class EnemyBoxesClient implements ClientModInitializer {
                 }
             }
             if (lockedEntity instanceof LivingEntity living && living.isAlive()
-                    && EnemyBoxesState.matches(living)) {
+                    && EnemyBoxesState.matches(living)
+                    && hasLineOfSight(client, lockedEntity)
+                    && isInFovCircle(client, lockedEntity)) {
                 return;
             } else {
                 EnemyBoxesState.lockedTarget = null;
@@ -228,16 +306,35 @@ public final class EnemyBoxesClient implements ClientModInitializer {
         double fovY        = client.options.fov().get();
         double tanHalfFovY = Math.tan(Math.toRadians(fovY / 2.0));
 
-        double bestScreenDist = Double.MAX_VALUE;
-        UUID bestTarget = null;
+        double bestScore  = Double.MAX_VALUE;
+        UUID   bestTarget = null;
+
+        // First pass: collect raw values so we can normalize them
+        record Candidate(UUID uuid, double screenDist, double worldDist) {}
+        java.util.List<Candidate> candidates = new java.util.ArrayList<>();
 
         for (Entity entity : client.level.entitiesForRendering()) {
             if (entity == client.player) continue;
             if (!(entity instanceof LivingEntity living) || !living.isAlive()) continue;
             if (!EnemyBoxesState.matches(living)) continue;
+            if (!hasLineOfSight(client, entity)) continue;
 
             net.minecraft.world.phys.AABB box = entity.getBoundingBox();
-            Vec3[] points = {
+
+            // Project a world point into 2D pixel-space relative to crosshair center.
+            // Returns null if the point is behind the camera.
+            record ScreenPt(double px, double py) {}
+            java.util.function.Function<Vec3, ScreenPt> project = (pt) -> {
+                Vec3 rel = pt.subtract(camPos);
+                if (rel.normalize().dot(camForward) <= 0) return null;
+                double fwd = rel.dot(camForward);
+                double sx  = rel.dot(camRight) / fwd;
+                double sy  = -rel.dot(camUp)   / fwd;
+                return new ScreenPt(sx * halfH / tanHalfFovY, sy * halfH / tanHalfFovY);
+            };
+
+            // All 8 corners as screen points (null = behind camera, skip)
+            Vec3[] corners = {
                     new Vec3(box.minX, box.minY, box.minZ),
                     new Vec3(box.maxX, box.minY, box.minZ),
                     new Vec3(box.minX, box.maxY, box.minZ),
@@ -246,36 +343,94 @@ public final class EnemyBoxesClient implements ClientModInitializer {
                     new Vec3(box.maxX, box.minY, box.maxZ),
                     new Vec3(box.minX, box.maxY, box.maxZ),
                     new Vec3(box.maxX, box.maxY, box.maxZ),
-                    entity.getEyePosition(1.0f)
+            };
+            ScreenPt[] sc = new ScreenPt[8];
+            for (int i = 0; i < 8; i++) sc[i] = project.apply(corners[i]);
+
+            // The 12 edges of the box defined by corner index pairs
+            int[][] edges = {
+                    {0,1},{2,3},{4,5},{6,7}, // bottom/top along X
+                    {0,2},{1,3},{4,6},{5,7}, // along Y
+                    {0,4},{1,5},{2,6},{3,7}  // along Z
             };
 
-            double bestPointScreenDist = Double.MAX_VALUE;
-            boolean anyPointInCircle = false;
+            double fovR = EnemyBoxesState.lockFov;
+            double bestScreenDist = Double.MAX_VALUE;
+            boolean anyInCircle = false;
 
-            for (Vec3 point : points) {
-                Vec3 toPoint = point.subtract(camPos);
-                double dot = toPoint.normalize().dot(camForward);
-                if (dot <= 0) continue;
-
-                double forward = toPoint.dot(camForward);
-                double screenX = toPoint.dot(camRight) / forward;
-                double screenY = -toPoint.dot(camUp) / forward;
-
-                double pixelX = screenX * halfH / tanHalfFovY;
-                double pixelY = screenY * halfH / tanHalfFovY;
-                double pixelDist = Math.sqrt(pixelX * pixelX + pixelY * pixelY);
-
-                if (pixelDist <= EnemyBoxesState.lockFov) {
-                    anyPointInCircle = true;
-                    if (pixelDist < bestPointScreenDist) {
-                        bestPointScreenDist = pixelDist;
-                    }
+            // Check each corner point
+            for (ScreenPt p : sc) {
+                if (p == null) continue;
+                double d = Math.sqrt(p.px() * p.px() + p.py() * p.py());
+                if (d <= fovR) {
+                    anyInCircle = true;
+                    if (d < bestScreenDist) bestScreenDist = d;
                 }
             }
 
-            if (anyPointInCircle && bestPointScreenDist < bestScreenDist) {
-                bestScreenDist = bestPointScreenDist;
-                bestTarget = entity.getUUID();
+            // Check closest point on each projected edge to the crosshair (0,0).
+            // This catches the case where an edge passes through the circle but
+            // neither endpoint lands inside it.
+            for (int[] edge : edges) {
+                ScreenPt a = sc[edge[0]];
+                ScreenPt b = sc[edge[1]];
+                if (a == null || b == null) continue;
+
+                double ax = a.px(), ay = a.py();
+                double bx = b.px(), by = b.py();
+                double dx = bx - ax,  dy = by - ay;
+                double lenSq = dx * dx + dy * dy;
+
+                // t = dot(origin - a, b - a) / |b-a|^2, clamped to [0,1]
+                double t = lenSq > 0 ? Math.max(0, Math.min(1, (-ax * dx + -ay * dy) / lenSq)) : 0;
+                double cx = ax + t * dx;
+                double cy = ay + t * dy;
+                double d  = Math.sqrt(cx * cx + cy * cy);
+
+                if (d <= fovR) {
+                    anyInCircle = true;
+                    if (d < bestScreenDist) bestScreenDist = d;
+                }
+            }
+
+            // Also check eye position as a bonus point
+            ScreenPt eye = project.apply(entity.getEyePosition(1.0f));
+            if (eye != null) {
+                double d = Math.sqrt(eye.px() * eye.px() + eye.py() * eye.py());
+                if (d <= fovR) {
+                    anyInCircle = true;
+                    if (d < bestScreenDist) bestScreenDist = d;
+                }
+            }
+
+            if (anyInCircle) {
+                double worldDist = client.player.distanceTo(entity);
+                candidates.add(new Candidate(entity.getUUID(), bestScreenDist, worldDist));
+            }
+        }
+
+        if (!candidates.isEmpty()) {
+            // Normalize screen distance linearly across the candidate set
+            double maxScreen = candidates.stream().mapToDouble(c -> c.screenDist()).max().orElse(1.0);
+            if (maxScreen == 0) maxScreen = 1.0;
+
+            // World distance uses exponential decay so proximity bias is strongly
+            // felt — a target at 5 blocks scores much better than one at 20 blocks,
+            // rather than a gentle linear slope. Falloff ~10 blocks feels natural
+            // for typical Minecraft PvP ranges.
+            final double FALLOFF = 10.0;
+
+            float t = EnemyBoxesState.aimPriorityBlend;
+
+            for (Candidate c : candidates) {
+                double normScreen = c.screenDist() / maxScreen;
+                // exp decay: 0 at distance=0, approaches 1 as distance → ∞
+                double normWorld  = 1.0 - Math.exp(-c.worldDist() / FALLOFF);
+                double score      = (1.0 - t) * normScreen + t * normWorld;
+                if (score < bestScore) {
+                    bestScore  = score;
+                    bestTarget = c.uuid();
+                }
             }
         }
 
@@ -290,27 +445,35 @@ public final class EnemyBoxesClient implements ClientModInitializer {
         if (client.level == null || client.player == null) return;
 
         Vec3 playerPos = client.player.position();
-        int count = 0;
 
-        chat(client, "§e=== EnemyBoxes Debug Dump ===");
-        chat(client, "§eActive filters: §f" + EnemyBoxesState.targetNames);
-        chat(client, "§eESP enabled: §f" + EnemyBoxesState.enabled);
-        chat(client, "§eTotal entities in render list: §f" +
-                client.level.entitiesForRendering().spliterator().getExactSizeIfKnown());
+        // Collect all living entities within 50 blocks, sorted closest first
+        record DebugEntry(LivingEntity entity, double dist) {}
+        java.util.List<DebugEntry> entries = new java.util.ArrayList<>();
 
         for (Entity entity : client.level.entitiesForRendering()) {
             if (entity == client.player) continue;
             if (!(entity instanceof LivingEntity living) || !living.isAlive()) continue;
+            double distSq = entity.distanceToSqr(playerPos.x, playerPos.y, playerPos.z);
+            if (distSq > 2500) continue;
+            entries.add(new DebugEntry(living, Math.sqrt(distSq)));
+        }
 
-            double dist = entity.distanceToSqr(playerPos.x, playerPos.y, playerPos.z);
-            if (dist > 2500) continue;
+        entries.sort(java.util.Comparator.comparingDouble(e -> e.dist()));
 
+        chat(client, "§e=== EnemyBoxes Debug Dump ===");
+        chat(client, "§eActive filters: §f" + EnemyBoxesState.targets);
+        chat(client, "§eESP enabled: §f" + EnemyBoxesState.enabled);
+        chat(client, "§eFound §f" + entries.size() + " §eliving entities within 50 blocks (sorted by distance)");
+
+        int count = 0;
+        for (DebugEntry e : entries) {
+            LivingEntity living = e.entity();
             count++;
 
-            String scoreRaw      = entity.getScoreboardName();
-            String dispRaw       = entity.getDisplayName().getString();
-            String custRaw       = entity.hasCustomName() ? entity.getCustomName().getString() : "null";
-            String teamName      = entity.getTeam() != null ? entity.getTeam().getName() : "null";
+            String scoreRaw      = living.getScoreboardName();
+            String dispRaw       = living.getDisplayName().getString();
+            String custRaw       = living.hasCustomName() ? living.getCustomName().getString() : "null";
+            String teamName      = living.getTeam() != null ? living.getTeam().getName() : "null";
             String scoreStripped = scoreRaw.replaceAll("§.", "");
             String dispStripped  = dispRaw.replaceAll("§.", "");
 
@@ -318,10 +481,12 @@ public final class EnemyBoxesClient implements ClientModInitializer {
             for (char c : scoreRaw.toCharArray()) hex.append(String.format("%04x ", (int) c));
 
             boolean matched = EnemyBoxesState.matches(living);
-            String type = net.minecraft.world.entity.EntityType.getKey(entity.getType()).toString();
+            boolean locked  = living.getUUID().equals(EnemyBoxesState.lockedTarget);
+            String type     = net.minecraft.world.entity.EntityType.getKey(living.getType()).toString();
 
-            chat(client, "§7--- #" + count + " dist=" + String.format("%.1f", Math.sqrt(dist))
-                    + " MATCH=" + (matched ? "§aYES" : "§cNO") + " ---");
+            chat(client, "§7--- #" + count + " dist=" + String.format("%.1f", e.dist())
+                    + " MATCH=" + (matched ? "§aYES" : "§cNO")
+                    + (locked ? " §e[LOCKED]" : "") + " §7---");
             chat(client, "§bType:        §f" + type);
             chat(client, "§bScore raw:   §f[" + scoreRaw + "]");
             chat(client, "§bScore strip: §f[" + scoreStripped + "]");
@@ -330,15 +495,15 @@ public final class EnemyBoxesClient implements ClientModInitializer {
             chat(client, "§bCustom raw:  §f[" + custRaw + "]");
             chat(client, "§bTeam:        §f" + teamName);
             chat(client, "§bHex score:   §f" + hex);
-            chat(client, "§bBbW/H:       §f" + entity.getBbWidth() + " / " + entity.getBbHeight());
-            chat(client, "§bEntityY:     §f" + String.format("%.3f", entity.getY()));
-            chat(client, "§bAABB minY:   §f" + String.format("%.3f", entity.getBoundingBox().minY)
-                    + "  maxY: " + String.format("%.3f", entity.getBoundingBox().maxY));
+            chat(client, "§bBbW/H:       §f" + living.getBbWidth() + " / " + living.getBbHeight());
+            chat(client, "§bEntityY:     §f" + String.format("%.3f", living.getY()));
+            chat(client, "§bAABB minY:   §f" + String.format("%.3f", living.getBoundingBox().minY)
+                    + "  maxY: " + String.format("%.3f", living.getBoundingBox().maxY));
 
             if (count >= 6) { chat(client, "§c(capped at 6 entities)"); break; }
         }
 
-        if (count == 0) chat(client, "§cNo living entities within 50 blocks.");
+        if (entries.isEmpty()) chat(client, "§cNo living entities within 50 blocks.");
         chat(client, "§e==============================");
     }
 
@@ -351,7 +516,7 @@ public final class EnemyBoxesClient implements ClientModInitializer {
         Minecraft client = Minecraft.getInstance();
         if (client.player != null) {
             client.player.displayClientMessage(Component.literal(
-                    "[EnemyBoxes] Tracking " + EnemyBoxesState.targetNames.size() + " target(s)"
+                    "[EnemyBoxes] Tracking " + EnemyBoxesState.targets.size() + " target(s)"
             ), false);
         }
     }
