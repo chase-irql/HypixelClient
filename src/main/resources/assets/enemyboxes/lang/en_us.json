@@ -1,4 +1,7 @@
 {
   "key.category.enemyboxes.controls": "EnemyBoxes",
-  "key.enemyboxes.open_menu": "Open EnemyBoxes Menu"
+  "key.enemyboxes.open_menu": "Open EnemyBoxes Menu",
+  "key.enemyboxes.lock_on": "Hold Lock On",
+  "key.enemyboxes.debug": "Debug Dump",
+  "key.enemyboxes.toggle_auto_hunt": "Toggle Auto Hunt"
 }

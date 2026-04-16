@@ -53,6 +53,21 @@ public final class EnemyBoxesAim {
             aimPos = new Vec3(entity.getX(), chestY, entity.getZ());
         }
 
+        applyAim(client, aimPos);
+    }
+
+    /**
+     * Aim at an arbitrary world position with no line-of-sight check.
+     * Used for the hunt mode to track projectiles without LOS enforcement.
+     */
+    public static void aimAtPosition(Minecraft client, Vec3 aimPos) {
+        if (client.player == null) return;
+        applyAim(client, aimPos);
+    }
+
+    private static void applyAim(Minecraft client, Vec3 aimPos) {
+        Vec3 camPos = client.player.getEyePosition(1.0f);
+
         updateDrift();
 
         Vec3 target = aimPos.add(
@@ -85,10 +100,7 @@ public final class EnemyBoxesAim {
         currentPitch = currentPitch + (targetPitch - currentPitch) * speed;
         currentPitch = Math.max(-90f, Math.min(90f, currentPitch));
 
-        client.player.setYRot(currentYaw);
-        client.player.setXRot(currentPitch);
-        client.player.yRotO = currentYaw;
-        client.player.xRotO = currentPitch;
+        applyViewRotation(client, currentYaw, currentPitch);
     }
 
     private static boolean hasLineOfSight(Minecraft client, Entity entity) {
@@ -149,5 +161,14 @@ public final class EnemyBoxesAim {
         driftVelY *= damping;
         driftX += driftVelX;
         driftY += driftVelY;
+    }
+
+    private static void applyViewRotation(Minecraft client, float yaw, float pitch) {
+        currentYaw = yaw;
+        currentPitch = pitch;
+        client.player.setYRot(yaw);
+        client.player.setXRot(pitch);
+        client.player.yRotO = yaw;
+        client.player.xRotO = pitch;
     }
 }

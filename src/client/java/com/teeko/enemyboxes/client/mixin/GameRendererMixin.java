@@ -23,18 +23,26 @@ public class GameRendererMixin {
 
     @Inject(method = "render", at = @At("HEAD"))
     private void onRenderHead(DeltaTracker deltaTracker, boolean bl, CallbackInfo ci) {
-        // Bail if aimbot is toggled off
-        if (!EnemyBoxesState.aimbotEnabled) return;
-        if (EnemyBoxesState.lockedTarget == null) return;
-
         Minecraft client = Minecraft.getInstance();
         if (client.level == null || client.player == null) return;
 
-        for (Entity entity : client.level.entitiesForRendering()) {
-            if (!entity.getUUID().equals(EnemyBoxesState.lockedTarget)) continue;
-            if (!(entity instanceof LivingEntity living) || !living.isAlive()) continue;
-            EnemyBoxesAim.aimAtEntity(client, entity);
-            break;
+        // Regular aimbot — aims at the locked living entity
+        if (EnemyBoxesState.aimbotEnabled && EnemyBoxesState.lockedTarget != null) {
+            for (Entity entity : client.level.entitiesForRendering()) {
+                if (!entity.getUUID().equals(EnemyBoxesState.lockedTarget)) continue;
+                if (!(entity instanceof LivingEntity living) || !living.isAlive()) continue;
+                EnemyBoxesAim.aimAtEntity(client, entity);
+                break;
+            }
+        }
+
+        // Hunt aim — aims at the locked shulker bullet without LOS check
+        if (EnemyBoxesState.autoHuntEnabled && EnemyBoxesState.huntLockedBullet != null) {
+            for (Entity entity : client.level.entitiesForRendering()) {
+                if (!entity.getUUID().equals(EnemyBoxesState.huntLockedBullet)) continue;
+                EnemyBoxesAim.aimAtPosition(client, entity.getBoundingBox().getCenter());
+                break;
+            }
         }
     }
 }

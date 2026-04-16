@@ -1,6 +1,7 @@
 package com.teeko.enemyboxes.client;
 
 import com.mojang.blaze3d.platform.InputConstants;
+import com.teeko.enemyboxes.client.mixin.MinecraftAccessor;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
@@ -52,10 +53,24 @@ public final class EnemyBoxesClient implements ClientModInitializer {
                     CATEGORY
             ));
 
+    private static final KeyMapping TOGGLE_HUNT_KEY =
+            KeyBindingHelper.registerKeyBinding(new KeyMapping(
+                    "key.enemyboxes.toggle_auto_hunt",
+                    InputConstants.Type.KEYSYM,
+                    GLFW.GLFW_KEY_H,
+                    CATEGORY
+            ));
+
     private static long    lastSwingMs     = 0;
     private static long    nextSwingDelayMs = -1; // -1 = not yet initialized, sample on first lock
     private static boolean reactionPending  = false;
     private static long    reactionFireMs   = 0;
+    private static UUID    lastAutoSwingTarget = null;
+    private static long    nextHuntUseMs    = -1;
+    private static UUID    lastHuntUseTarget = null;
+
+    private static final long   HUNT_INITIAL_USE_DELAY_MS = 100;
+    private static final double HUNT_USE_DELAY_JITTER     = 0.10;
 
     private static final Random              swingRandom  = new Random();
     private static final ArrayDeque<Long>    attackTimes  = new ArrayDeque<>();
@@ -65,7 +80,7 @@ public final class EnemyBoxesClient implements ClientModInitializer {
         EnemyBoxesConfig.load();
 
         HudRenderCallback.EVENT.register((guiGraphics, deltaTracker) ->
-                EnemyBoxesHud.render(guiGraphics));
+                EnemyBoxesHud.render(guiGraphics, deltaTracker.getGameTimeDeltaPartialTick(false)));
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             while (OPEN_MENU_KEY.consumeClick()) {
@@ -76,15 +91,26 @@ public final class EnemyBoxesClient implements ClientModInitializer {
                 dumpNearbyEntities(client);
             }
 
+            while (TOGGLE_HUNT_KEY.consumeClick()) {
+                EnemyBoxesState.autoHuntEnabled = !EnemyBoxesState.autoHuntEnabled;
+                if (!EnemyBoxesState.autoHuntEnabled) {
+                    HideonleafHunt.resetState();
+                    resetHuntUseState();
+                }
+                EnemyBoxesConfig.save();
+                notifyAutoHuntToggled(client);
+            }
+
             if (!LOCK_ON_KEY.isDown()) {
                 EnemyBoxesState.lockedTarget = null;
                 EnemyBoxesAim.reset();
-                reactionPending  = false;
-                nextSwingDelayMs = -1;
+                resetAutoSwingState();
             } else {
                 updateLockOn(client);
             }
 
+            HideonleafHunt.tick(client);
+            tryAutoHuntUse(client);
             tryAutoSwing(client);
         });
     }
@@ -112,9 +138,19 @@ public final class EnemyBoxesClient implements ClientModInitializer {
     // -------------------------------------------------------------------------
 
     private static void tryAutoSwing(Minecraft client) {
-        if (!EnemyBoxesState.autoSwingEnabled) return;
-        if (EnemyBoxesState.lockedTarget == null) return;
         if (client.level == null || client.player == null || client.gameMode == null) return;
+
+        UUID attackTarget = getAutoSwingTarget();
+        if (attackTarget == null) {
+            resetAutoSwingState();
+            return;
+        }
+
+        boolean isNewTarget = !attackTarget.equals(lastAutoSwingTarget);
+        if (isNewTarget) {
+            resetAutoSwingState();
+            lastAutoSwingTarget = attackTarget;
+        }
 
         long now = System.currentTimeMillis();
 
@@ -133,8 +169,8 @@ public final class EnemyBoxesClient implements ClientModInitializer {
         if (now - lastSwingMs < nextSwingDelayMs) return;
 
         for (Entity entity : client.level.entitiesForRendering()) {
-            if (!entity.getUUID().equals(EnemyBoxesState.lockedTarget)) continue;
-            if (!(entity instanceof LivingEntity living) || !living.isAlive()) continue;
+            if (!entity.getUUID().equals(attackTarget)) continue;
+            if (!entity.isAlive()) continue;
 
             boolean inRange = inReach(client, entity);
             boolean los     = !EnemyBoxesState.requireLineOfSight || hasLineOfSight(client, entity);
@@ -172,8 +208,61 @@ public final class EnemyBoxesClient implements ClientModInitializer {
         }
     }
 
+    private static void tryAutoHuntUse(Minecraft client) {
+        if (client.level == null || client.player == null || client.gameMode == null) return;
+
+        UUID huntTarget = EnemyBoxesState.autoHuntEnabled ? EnemyBoxesState.huntLockedBullet : null;
+        if (huntTarget == null) {
+            resetHuntUseState();
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        if (!huntTarget.equals(lastHuntUseTarget)) {
+            lastHuntUseTarget = huntTarget;
+            nextHuntUseMs = now + nextJitteredDelay(HUNT_INITIAL_USE_DELAY_MS, HUNT_USE_DELAY_JITTER);
+            return;
+        }
+
+        if (now < nextHuntUseMs || client.screen != null) return;
+
+        for (Entity entity : client.level.entitiesForRendering()) {
+            if (!entity.getUUID().equals(huntTarget)) continue;
+            if (!entity.isAlive()) {
+                resetHuntUseState();
+                break;
+            }
+            if (!inHuntUseReach(client, entity)) {
+                resetHuntUseState();
+                break;
+            }
+
+            ((MinecraftAccessor) client).enemyboxes$invokeStartUseItem();
+            HideonleafHunt.markBulletUsed(huntTarget);
+            resetHuntUseState();
+            break;
+        }
+    }
+
+    private static void resetAutoSwingState() {
+        reactionPending = false;
+        reactionFireMs = 0;
+        nextSwingDelayMs = -1;
+        lastAutoSwingTarget = null;
+    }
+
+    private static void resetHuntUseState() {
+        nextHuntUseMs = -1;
+        lastHuntUseTarget = null;
+    }
+
     private static boolean inReach(Minecraft client, Entity entity) {
         double reach = client.player.entityInteractionRange();
+        return client.player.distanceTo(entity) <= reach;
+    }
+
+    private static boolean inHuntUseReach(Minecraft client, Entity entity) {
+        double reach = client.player.entityInteractionRange() + 3.5;
         return client.player.distanceTo(entity) <= reach;
     }
 
@@ -266,6 +355,13 @@ public final class EnemyBoxesClient implements ClientModInitializer {
             val = fMax - (float) Math.sqrt((1f - u) * (fMax - fMin) * (fMax - fMode));
         }
         return Math.max(min, (long) val);
+    }
+
+    private static long nextJitteredDelay(long baseDelayMs, double jitterFraction) {
+        if (baseDelayMs <= 0) return 0;
+        double spread = baseDelayMs * jitterFraction;
+        double offset = (swingRandom.nextDouble() * 2.0 - 1.0) * spread;
+        return Math.max(0L, Math.round(baseDelayMs + offset));
     }
 
     // -------------------------------------------------------------------------
@@ -517,6 +613,22 @@ public final class EnemyBoxesClient implements ClientModInitializer {
         if (client.player != null) {
             client.player.displayClientMessage(Component.literal(
                     "[EnemyBoxes] Tracking " + EnemyBoxesState.targets.size() + " target(s)"
+            ), false);
+        }
+    }
+
+    private static UUID getAutoSwingTarget() {
+        if (EnemyBoxesState.autoSwingEnabled && EnemyBoxesState.lockedTarget != null) {
+            return EnemyBoxesState.lockedTarget;
+        }
+
+        return null;
+    }
+
+    private static void notifyAutoHuntToggled(Minecraft client) {
+        if (client.player != null) {
+            client.player.displayClientMessage(Component.literal(
+                    "[EnemyBoxes] Auto Hunt: " + (EnemyBoxesState.autoHuntEnabled ? "ON" : "OFF")
             ), false);
         }
     }

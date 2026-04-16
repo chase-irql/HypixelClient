@@ -57,6 +57,13 @@ public final class EnemyBoxesConfig {
         float   cpsX     = 4f;
         float   cpsY     = 4f;
         float   cpsScale = 1.0f;
+        // Snaplines
+        boolean snaplinesEnabled     = false;
+        boolean drawOffscreenEnemies = false;
+        boolean snaplinesOnlyClosest = false;
+        int     snaplineThickness    = 1;
+        // Hideonleaf hunt
+        boolean autoHuntEnabled = false;
     }
 
     public static void save() {
@@ -84,6 +91,11 @@ public final class EnemyBoxesConfig {
         d.cpsX                   = EnemyBoxesState.cpsX;
         d.cpsY                   = EnemyBoxesState.cpsY;
         d.cpsScale               = EnemyBoxesState.cpsScale;
+        d.snaplinesEnabled       = EnemyBoxesState.snaplinesEnabled;
+        d.drawOffscreenEnemies   = EnemyBoxesState.drawOffscreenEnemies;
+        d.snaplinesOnlyClosest   = EnemyBoxesState.snaplinesOnlyClosest;
+        d.snaplineThickness      = EnemyBoxesState.snaplineThickness;
+        d.autoHuntEnabled        = EnemyBoxesState.autoHuntEnabled;
 
         d.targets = EnemyBoxesState.targets.entrySet().stream()
                 .map(e -> new TargetEntry(e.getKey(), e.getValue()))
@@ -127,6 +139,11 @@ public final class EnemyBoxesConfig {
             EnemyBoxesState.cpsX                   = d.cpsX;
             EnemyBoxesState.cpsY                   = d.cpsY;
             EnemyBoxesState.cpsScale               = d.cpsScale;
+            EnemyBoxesState.snaplinesEnabled       = d.snaplinesEnabled;
+            EnemyBoxesState.drawOffscreenEnemies   = d.drawOffscreenEnemies;
+            EnemyBoxesState.snaplinesOnlyClosest   = d.snaplinesOnlyClosest;
+            EnemyBoxesState.snaplineThickness      = d.snaplineThickness;
+            EnemyBoxesState.autoHuntEnabled        = d.autoHuntEnabled;
 
             EnemyBoxesState.targets.clear();
             if (d.targets != null) {

@@ -19,6 +19,8 @@ import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.monster.Shulker;
+import net.minecraft.world.entity.projectile.ShulkerBullet;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
@@ -53,7 +55,6 @@ public final class EnemyBoxesRenderer {
     public static void render(Camera camera, Matrix4f viewMatrix, float tickDelta) {
         Minecraft client = Minecraft.getInstance();
         if (client.level == null || client.player == null) return;
-        if (!EnemyBoxesState.enabled || !EnemyBoxesState.hasTarget()) return;
 
         Vec3 camPos = camera.position();
         double camX = camPos.x;
@@ -63,49 +64,102 @@ public final class EnemyBoxesRenderer {
         capturedViewMatrix.set(viewMatrix);
         boolean anyDrawn = false;
 
-        for (Entity entity : client.level.entitiesForRendering()) {
-            if (entity == client.player) continue;
-            if (!(entity instanceof LivingEntity living) || !living.isAlive()) continue;
-            if (!EnemyBoxesState.matches(living)) continue;
+        // ── Regular ESP boxes ────────────────────────────────────────────────
+        if (EnemyBoxesState.enabled && EnemyBoxesState.hasTarget()) {
+            for (Entity entity : client.level.entitiesForRendering()) {
+                if (entity == client.player) continue;
+                if (!(entity instanceof LivingEntity living) || !living.isAlive()) continue;
+                if (!EnemyBoxesState.matches(living)) continue;
 
-            // Use the real AABB for dimensions/shape
-            AABB worldBox = entity.getBoundingBox();
+                AABB worldBox = entity.getBoundingBox();
+                if (worldBox.maxX - worldBox.minX < 0.01
+                        && worldBox.maxY - worldBox.minY < 0.01
+                        && worldBox.maxZ - worldBox.minZ < 0.01) continue;
 
-            // Skip degenerate boxes
-            if (worldBox.maxX - worldBox.minX < 0.01
-                    && worldBox.maxY - worldBox.minY < 0.01
-                    && worldBox.maxZ - worldBox.minZ < 0.01) continue;
+                if (buffer == null) {
+                    buffer = new BufferBuilder(allocator, BOX_PIPELINE.getVertexFormatMode(), BOX_PIPELINE.getVertexFormat());
+                    verticesWritten = 0;
+                }
 
-            if (buffer == null) {
-                buffer = new BufferBuilder(allocator, BOX_PIPELINE.getVertexFormatMode(), BOX_PIPELINE.getVertexFormat());
-                verticesWritten = 0;
+                double lerpX = lerp(tickDelta, entity.xOld, entity.getX());
+                double lerpY = lerp(tickDelta, entity.yOld, entity.getY());
+                double lerpZ = lerp(tickDelta, entity.zOld, entity.getZ());
+                double shiftX = lerpX - entity.getX();
+                double shiftY = lerpY - entity.getY();
+                double shiftZ = lerpZ - entity.getZ();
+
+                AABB localBox = worldBox
+                        .move(shiftX, shiftY, shiftZ)
+                        .move(-camX, -camY, -camZ);
+
+                Matrix4f vertexMat = new Matrix4f();
+
+                boolean isLocked = EnemyBoxesState.lockedTarget != null &&
+                        EnemyBoxesState.lockedTarget.equals(entity.getUUID());
+
+                float r = isLocked ? 0f : 1f;
+                float g = isLocked ? 1f : 0f;
+                renderBox(vertexMat, buffer, localBox, r, g, 0f, 1f);
+                anyDrawn = true;
             }
+        }
 
-            // Lerp the entity's foot position for smooth sub-tick motion,
-            // then offset the real AABB by the lerped position delta
-            double lerpX = lerp(tickDelta, entity.xOld, entity.getX());
-            double lerpY = lerp(tickDelta, entity.yOld, entity.getY());
-            double lerpZ = lerp(tickDelta, entity.zOld, entity.getZ());
+        // ── Hunt boxes: shulkers (magenta) + targeted bullet (cyan) ──────────
+        // Rendered independently of ESP so the player can always see them.
+        if (EnemyBoxesState.autoHuntEnabled) {
+            for (Entity entity : client.level.entitiesForRendering()) {
+                if (entity == client.player) continue;
 
-            // Shift = lerped pos minus current pos (AABB is already at current pos)
-            double shiftX = lerpX - entity.getX();
-            double shiftY = lerpY - entity.getY();
-            double shiftZ = lerpZ - entity.getZ();
+                boolean isShulker = entity instanceof Shulker s && s.isAlive();
+                boolean isBullet  = entity instanceof ShulkerBullet
+                        && EnemyBoxesState.huntTrackedBullet != null
+                        && entity.getUUID().equals(EnemyBoxesState.huntTrackedBullet);
 
-            // Move AABB to lerped world position, then into camera-relative space
-            AABB localBox = worldBox
-                    .move(shiftX, shiftY, shiftZ)   // apply lerp offset
-                    .move(-camX, -camY, -camZ);       // camera-relative
+                if (!isShulker && !isBullet) continue;
 
-            Matrix4f vertexMat = new Matrix4f();
+                // Skip shulkers that ESP is already drawing to avoid double-draw
+                if (isShulker && EnemyBoxesState.enabled
+                        && EnemyBoxesState.matches((LivingEntity) entity)) continue;
 
-            boolean isLocked = EnemyBoxesState.lockedTarget != null &&
-                    EnemyBoxesState.lockedTarget.equals(entity.getUUID());
+                AABB worldBox = entity.getBoundingBox();
+                if (worldBox.maxX - worldBox.minX < 0.01
+                        && worldBox.maxY - worldBox.minY < 0.01
+                        && worldBox.maxZ - worldBox.minZ < 0.01) continue;
 
-            float r = isLocked ? 0f : 1f;
-            float g = isLocked ? 1f : 0f;
-            renderBox(vertexMat, buffer, localBox, r, g, 0f, 1f);
-            anyDrawn = true;
+                if (buffer == null) {
+                    buffer = new BufferBuilder(allocator, BOX_PIPELINE.getVertexFormatMode(), BOX_PIPELINE.getVertexFormat());
+                    verticesWritten = 0;
+                }
+
+                double lerpX  = lerp(tickDelta, entity.xOld, entity.getX());
+                double lerpY  = lerp(tickDelta, entity.yOld, entity.getY());
+                double lerpZ  = lerp(tickDelta, entity.zOld, entity.getZ());
+                double shiftX = lerpX - entity.getX();
+                double shiftY = lerpY - entity.getY();
+                double shiftZ = lerpZ - entity.getZ();
+
+                AABB localBox = worldBox
+                        .move(shiftX, shiftY, shiftZ)
+                        .move(-camX, -camY, -camZ);
+
+                Matrix4f vertexMat = new Matrix4f();
+
+                if (isShulker) {
+                    boolean isActive = EnemyBoxesState.huntLockedShulker != null
+                            && EnemyBoxesState.huntLockedShulker.equals(entity.getUUID());
+                    // Magenta for active shulker, dim purple for others in range
+                    float intensity = isActive ? 1.0f : 0.5f;
+                    renderBox(vertexMat, buffer, localBox, intensity, 0f, intensity, 1f);
+                } else {
+                    // Always render the outgoing tracked bullet; brighten it when
+                    // it's also in true aim-lock range.
+                    boolean isAimLocked = EnemyBoxesState.huntLockedBullet != null
+                            && EnemyBoxesState.huntLockedBullet.equals(entity.getUUID());
+                    float cyan = isAimLocked ? 1.0f : 0.55f;
+                    renderBox(vertexMat, buffer, localBox, 0f, cyan, cyan, 1f);
+                }
+                anyDrawn = true;
+            }
         }
 
         if (anyDrawn && buffer != null && verticesWritten > 0) {

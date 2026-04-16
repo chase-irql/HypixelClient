@@ -1,14 +1,23 @@
 package com.teeko.enemyboxes.client;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.Camera;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.monster.Shulker;
+import net.minecraft.world.phys.Vec3;
+import org.joml.Vector3fc;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public final class EnemyBoxesHud {
 
     private static final int SEGMENTS = 128;
     private static final int COLOR    = 0xFFFFFF00;
 
-    public static void render(GuiGraphics graphics) {
+    public static void render(GuiGraphics graphics, float tickDelta) {
         Minecraft client = Minecraft.getInstance();
 
         // FOV circle
@@ -31,11 +40,236 @@ public final class EnemyBoxesHud {
             }
         }
 
+        // Snaplines — draw when toggle is on OR when hunt forces them; each path
+        // has its own entity collection logic inside renderSnaplines.
+        if (client.level != null && client.player != null
+                && (EnemyBoxesState.snaplinesEnabled || EnemyBoxesState.autoHuntEnabled)) {
+            renderSnaplines(graphics, client, tickDelta);
+        }
+
+        // Hunt debug overlay (top-right corner)
+        if (EnemyBoxesState.autoHuntEnabled && client.level != null) {
+            renderHuntDebug(graphics, client);
+        }
+
         // CPS counter
         if (EnemyBoxesState.showCps) {
             renderCps(graphics, client, EnemyBoxesState.cpsX, EnemyBoxesState.cpsY, EnemyBoxesState.cpsScale, false);
         }
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Snaplines
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private static void renderSnaplines(GuiGraphics graphics, Minecraft client, float tickDelta) {
+        if (client.gameRenderer == null) return;
+
+        Camera camera = client.gameRenderer.getMainCamera();
+        float cx = client.getWindow().getGuiScaledWidth()  / 2f;
+        float cy = client.getWindow().getGuiScaledHeight() / 2f;
+
+        Vec3 camPos = camera.position();
+        Vector3fc forwardVec = camera.forwardVector();
+        Vector3fc upVec      = camera.upVector();
+        Vector3fc leftVec    = camera.leftVector();
+        Vec3 camForward      = new Vec3(forwardVec.x(), forwardVec.y(), forwardVec.z());
+        Vec3 camUp           = new Vec3(upVec.x(), upVec.y(), upVec.z());
+        Vec3 camRight        = new Vec3(-leftVec.x(), -leftVec.y(), -leftVec.z());
+
+        // Collect entities to draw lines to — two independent sources:
+        //   1) Normal snaplines: ESP-matched entities when the toggle is on
+        //   2) Hunt snaplines:   all alive Shulkers when auto hunt is on
+        List<Entity> toRender  = new ArrayList<>();
+        Entity closestEntity   = null;
+        double closestDist     = Double.MAX_VALUE;
+
+        for (Entity entity : client.level.entitiesForRendering()) {
+            if (entity == client.player) continue;
+
+            boolean include = false;
+
+            // Source 1: normal ESP-matched entities
+            if (EnemyBoxesState.snaplinesEnabled && EnemyBoxesState.enabled
+                    && entity instanceof LivingEntity living && living.isAlive()
+                    && EnemyBoxesState.matches(living)) {
+                include = true;
+            }
+
+            // Source 2: force-include shulkers when hunt is active
+            if (EnemyBoxesState.autoHuntEnabled
+                    && entity instanceof Shulker s && s.isAlive()) {
+                include = true;
+            }
+
+            if (!include) continue;
+
+            toRender.add(entity);
+            double dist = client.player.distanceTo(entity);
+            if (dist < closestDist) {
+                closestDist   = dist;
+                closestEntity = entity;
+            }
+        }
+
+        if (toRender.isEmpty()) return;
+
+        final Entity finalClosest = closestEntity;
+        int thickness = EnemyBoxesState.snaplineThickness;
+
+        int screenW = client.getWindow().getGuiScaledWidth();
+        int screenH = client.getWindow().getGuiScaledHeight();
+
+        for (Entity entity : toRender) {
+            boolean isClosest = entity == finalClosest;
+            if (EnemyBoxesState.snaplinesOnlyClosest && !isClosest) continue;
+
+            // Lerp position between previous and current tick for smooth sub-tick motion
+            double lerpX = entity.xOld + (entity.getX() - entity.xOld) * tickDelta;
+            double lerpY = entity.yOld + (entity.getY() - entity.yOld) * tickDelta
+                           + entity.getBbHeight() / 2.0;
+            double lerpZ = entity.zOld + (entity.getZ() - entity.zOld) * tickDelta;
+            Vec3 center  = new Vec3(lerpX, lerpY, lerpZ);
+
+            Vec3 rel = center.subtract(camPos);
+            double forward = rel.dot(camForward);
+            double right   = rel.dot(camRight);
+            double up      = rel.dot(camUp);
+
+            double sx;
+            double sy;
+            if (forward > 0.0) {
+                Vec3 projected = client.gameRenderer.projectPointToScreen(center);
+
+                // `projectPointToScreen` already gives us a stable forward-facing projection.
+                // Only discard pathological outputs; valid off-screen points should be
+                // clamped to the viewport edge below.
+                if (!Double.isFinite(projected.x) || !Double.isFinite(projected.y)) continue;
+
+                sx = cx + projected.x * cx;
+                sy = cy - projected.y * cy;
+            } else {
+                if (!EnemyBoxesState.drawOffscreenEnemies) continue;
+
+                // For behind-camera targets, build an indicator direction from the
+                // camera-space right/up axes instead of perspective projection.
+                double planarLen = Math.hypot(right, up);
+                double dirX;
+                double dirY;
+
+                if (planarLen < 1.0e-6) {
+                    dirX = 0.0;
+                    dirY = rel.y >= 0.0 ? 1.0 : -1.0;
+                } else {
+                    dirX = right / planarLen;
+                    dirY = up / planarLen;
+                }
+
+                double scale = Math.max(screenW, screenH) * 2.0;
+                sx = cx + dirX * scale;
+                sy = cy - dirY * scale;
+            }
+
+            boolean onScreen = sx >= 0 && sx < screenW && sy >= 0 && sy < screenH;
+            if (!onScreen) {
+                if (!EnemyBoxesState.drawOffscreenEnemies) continue;
+                ScreenPoint clamped = clampToScreenEdge(cx, cy, sx, sy, screenW, screenH, 2);
+                sx = clamped.x();
+                sy = clamped.y();
+            }
+
+            // Green for closest entity, red for all others
+            int color = isClosest ? 0xFF00FF00 : 0xFFFF0000;
+            drawThickLine(graphics, (int) cx, (int) cy, (int) Math.round(sx), (int) Math.round(sy), thickness, color);
+        }
+    }
+
+    private static ScreenPoint clampToScreenEdge(float cx, float cy,
+                                                 double sx, double sy,
+                                                 int screenW, int screenH,
+                                                 int padding) {
+        double dx = sx - cx;
+        double dy = sy - cy;
+        if (Math.abs(dx) < 1.0e-6 && Math.abs(dy) < 1.0e-6) {
+            return new ScreenPoint((int) cx, (int) cy);
+        }
+
+        double minX = padding;
+        double maxX = screenW - 1.0 - padding;
+        double minY = padding;
+        double maxY = screenH - 1.0 - padding;
+
+        double tx = Double.POSITIVE_INFINITY;
+        if (dx > 0) tx = (maxX - cx) / dx;
+        if (dx < 0) tx = (minX - cx) / dx;
+
+        double ty = Double.POSITIVE_INFINITY;
+        if (dy > 0) ty = (maxY - cy) / dy;
+        if (dy < 0) ty = (minY - cy) / dy;
+
+        double t = Math.min(tx, ty);
+        if (!Double.isFinite(t)) t = 0.0;
+        t = Math.max(0.0, Math.min(1.0, t));
+
+        double clampedX = Math.max(minX, Math.min(maxX, cx + dx * t));
+        double clampedY = Math.max(minY, Math.min(maxY, cy + dy * t));
+        return new ScreenPoint((int) Math.round(clampedX), (int) Math.round(clampedY));
+    }
+
+    private record ScreenPoint(int x, int y) {}
+
+    private static void drawThickLine(GuiGraphics graphics, int x0, int y0, int x1, int y1,
+                                      int thickness, int color) {
+        float dx  = x1 - x0;
+        float dy  = y1 - y0;
+        float len = (float) Math.sqrt(dx * dx + dy * dy);
+        if (len < 0.5f) return;
+
+        // Draw the line as a single rotated filled rectangle — O(1) draw calls
+        // regardless of line length, and no Bresenham integer-overflow risk.
+        float angle = (float) Math.atan2(dy, dx);
+        int   half  = Math.max(1, thickness) / 2;
+        int   lenI  = (int) Math.ceil(len);
+
+        graphics.pose().pushMatrix();
+        graphics.pose().translate(x0, y0);
+        graphics.pose().rotate(angle);
+        // Rectangle spans [0, lenI] along X and [-half, thickness-half] along Y
+        graphics.fill(0, -half, lenI, thickness - half, color);
+        graphics.pose().popMatrix();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Hunt debug overlay
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private static void renderHuntDebug(GuiGraphics graphics, Minecraft client) {
+        String line1 = "[Hunt] " + HideonleafHunt.debugState;
+        String line2 = HideonleafHunt.debugShulkerDist >= 0
+                ? "Shulker: " + String.format("%.1f", HideonleafHunt.debugShulkerDist) + "m"
+                : "Shulker: none";
+        String line3 = HideonleafHunt.debugBulletDist >= 0
+                ? "Bullet: "  + String.format("%.1f", HideonleafHunt.debugBulletDist)
+                  + "m [" + HideonleafHunt.debugBulletState + "]"
+                : "Bullet: none";
+
+        int lineH  = 10;
+        int maxW   = Math.max(client.font.width(line1),
+                     Math.max(client.font.width(line2), client.font.width(line3)));
+
+        // Draw in the top-right corner so it doesn't overlap the CPS widget
+        int bx = client.getWindow().getGuiScaledWidth() - maxW - 8;
+        int by = 4;
+
+        graphics.fill(bx - 2, by - 2, bx + maxW + 4, by + lineH * 3 + 2, 0xAA000000);
+        graphics.drawString(client.font, line1, bx, by,            0xFFFFFF00, true);
+        graphics.drawString(client.font, line2, bx, by + lineH,    0xFFFFFFFF, true);
+        graphics.drawString(client.font, line3, bx, by + lineH * 2, 0xFFFFFFFF, true);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // CPS display
+    // ─────────────────────────────────────────────────────────────────────────
 
     public static void renderCps(GuiGraphics graphics, Minecraft client, float x, float y, float scale, boolean highlight) {
         String text = "CPS: " + EnemyBoxesClient.getCps();
@@ -61,6 +295,10 @@ public final class EnemyBoxesHud {
     public static int getCpsHeight(float scale) {
         return (int)(9 * scale) + 4;
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Line drawing helpers
+    // ─────────────────────────────────────────────────────────────────────────
 
     private static void drawLine(GuiGraphics graphics, int x0, int y0, int x1, int y1, int color) {
         int dx = Math.abs(x1 - x0);

@@ -43,6 +43,18 @@ public final class EnemyBoxesState {
     public static float   cpsY     = 4f;
     public static float   cpsScale = 1.0f;
 
+    // Snaplines
+    public static boolean snaplinesEnabled    = false;
+    public static boolean drawOffscreenEnemies = false;
+    public static boolean snaplinesOnlyClosest = false;
+    public static int     snaplineThickness   = 1;
+
+    // Hideonleaf auto hunt
+    public static boolean autoHuntEnabled    = false;
+    public static UUID    huntLockedShulker  = null;
+    public static UUID    huntTrackedBullet  = null;
+    public static UUID    huntLockedBullet   = null;
+
     // Targets — name -> enabled. Order preserved via LinkedHashMap.
     public static final Map<String, Boolean> targets = new LinkedHashMap<>();
     public static UUID lockedTarget = null;

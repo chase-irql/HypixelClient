@@ -17,7 +17,7 @@ public final class EnemyBoxesScreen extends Screen {
 
     private final Screen parent;
 
-    private enum Tab { ESP, AIMBOT, COMBAT, TARGETS }
+    private enum Tab { ESP, AIMBOT, COMBAT, TARGETS, HIDEONLEAF }
     private Tab activeTab = Tab.ESP;
 
     private EditBox addBox;
@@ -30,7 +30,6 @@ public final class EnemyBoxesScreen extends Screen {
     private static final int BTN_H   = 20;
     private static final int MARGIN  = 4;
     private static final int TAB_H   = 22;
-    private static final int TAB_W   = PANEL_W / 4;
 
     // Smoothing is stored as float [0, 0.95]. We expose it to TripleSlider as
     // integer centipercent [0, 95] so we can reuse the existing int-based widget.
@@ -57,24 +56,26 @@ public final class EnemyBoxesScreen extends Screen {
 
         // ---- Tab bar --------------------------------------------------------
         Tab[] tabs = Tab.values();
+        int   tabW = PANEL_W / tabs.length; // distributes evenly across all tabs
         for (int i = 0; i < tabs.length; i++) {
             final Tab tab = tabs[i];
-            int tx = left + i * TAB_W;
+            int tx = left + i * tabW;
             this.addRenderableWidget(
                     Button.builder(Component.literal(tabLabel(tab)), btn -> {
                         activeTab = tab;
                         rebuildMenu();
-                    }).bounds(tx, top, TAB_W, TAB_H).build()
+                    }).bounds(tx, top, tabW, TAB_H).build()
             );
         }
 
         int contentTop = top + TAB_H + MARGIN;
 
         switch (activeTab) {
-            case ESP     -> buildEspTab(left, contentTop);
-            case AIMBOT  -> buildAimbotTab(left, contentTop);
-            case COMBAT  -> buildCombatTab(left, contentTop);
-            case TARGETS -> buildTargetsTab(left, contentTop);
+            case ESP        -> buildEspTab(left, contentTop);
+            case AIMBOT     -> buildAimbotTab(left, contentTop);
+            case COMBAT     -> buildCombatTab(left, contentTop);
+            case TARGETS    -> buildTargetsTab(left, contentTop);
+            case HIDEONLEAF -> buildHideonleafTab(left, contentTop);
         }
 
         // ---- Close ----------------------------------------------------------
@@ -133,6 +134,45 @@ public final class EnemyBoxesScreen extends Screen {
                 btn -> Minecraft.getInstance().setScreen(new CpsDragScreen(this))
         ).bounds(left + halfW + MARGIN, top, halfW, BTN_H).build());
         top += BTN_H + MARGIN;
+
+        // ── Snaplines ────────────────────────────────────────────────────────
+        this.addRenderableWidget(Button.builder(
+                Component.literal(EnemyBoxesState.snaplinesEnabled ? "Snaplines: ON" : "Snaplines: OFF"),
+                btn -> {
+                    EnemyBoxesState.snaplinesEnabled = !EnemyBoxesState.snaplinesEnabled;
+                    btn.setMessage(Component.literal(EnemyBoxesState.snaplinesEnabled ? "Snaplines: ON" : "Snaplines: OFF"));
+                }
+        ).bounds(left, top, PANEL_W, BTN_H).build());
+        top += BTN_H + MARGIN;
+
+        this.addRenderableWidget(Button.builder(
+                Component.literal(EnemyBoxesState.drawOffscreenEnemies ? "Draw Offscreen Enemies: ON" : "Draw Offscreen Enemies: OFF"),
+                btn -> {
+                    EnemyBoxesState.drawOffscreenEnemies = !EnemyBoxesState.drawOffscreenEnemies;
+                    btn.setMessage(Component.literal(EnemyBoxesState.drawOffscreenEnemies
+                            ? "Draw Offscreen Enemies: ON"
+                            : "Draw Offscreen Enemies: OFF"));
+                }
+        ).bounds(left, top, PANEL_W, BTN_H).build());
+        top += BTN_H + MARGIN;
+
+        this.addRenderableWidget(Button.builder(
+                Component.literal(EnemyBoxesState.snaplinesOnlyClosest ? "Show Only Closest: ON" : "Show Only Closest: OFF"),
+                btn -> {
+                    EnemyBoxesState.snaplinesOnlyClosest = !EnemyBoxesState.snaplinesOnlyClosest;
+                    btn.setMessage(Component.literal(EnemyBoxesState.snaplinesOnlyClosest ? "Show Only Closest: ON" : "Show Only Closest: OFF"));
+                }
+        ).bounds(left, top, PANEL_W, BTN_H).build());
+        top += BTN_H + MARGIN;
+
+        this.addRenderableWidget(new AbstractSliderButton(
+                left, top, PANEL_W, BTN_H,
+                Component.literal("Line Thickness: " + EnemyBoxesState.snaplineThickness),
+                (EnemyBoxesState.snaplineThickness - 1) / 4.0
+        ) {
+            @Override protected void updateMessage() { setMessage(Component.literal("Line Thickness: " + EnemyBoxesState.snaplineThickness)); }
+            @Override protected void applyValue()    { EnemyBoxesState.snaplineThickness = 1 + (int) Math.round(this.value * 4); }
+        });
     }
 
     // -------------------------------------------------------------------------
@@ -287,6 +327,20 @@ public final class EnemyBoxesScreen extends Screen {
     }
 
     // -------------------------------------------------------------------------
+    // Hideonleaf tab
+    // -------------------------------------------------------------------------
+
+    private void buildHideonleafTab(int left, int top) {
+        this.addRenderableWidget(Button.builder(
+                Component.literal(EnemyBoxesState.autoHuntEnabled ? "Auto Hunt: ON" : "Auto Hunt: OFF"),
+                btn -> {
+                    EnemyBoxesState.autoHuntEnabled = !EnemyBoxesState.autoHuntEnabled;
+                    btn.setMessage(Component.literal(EnemyBoxesState.autoHuntEnabled ? "Auto Hunt: ON" : "Auto Hunt: OFF"));
+                }
+        ).bounds(left, top, PANEL_W, BTN_H).build());
+    }
+
+    // -------------------------------------------------------------------------
     // Smoothing TripleSlider — shows decimal labels instead of " ms"
     // -------------------------------------------------------------------------
 
@@ -312,15 +366,6 @@ public final class EnemyBoxesScreen extends Screen {
             EnemyBoxesState.aimSmoothingMode = getMode() / (float) SMOOTH_SCALE;
             EnemyBoxesState.aimSmoothingMax  = getMax()  / (float) SMOOTH_SCALE;
         }
-
-        // Override the label text so it shows 0.00 decimals, not raw integers + "ms"
-        // TripleSlider.renderWidget() calls Minecraft.getInstance().font directly,
-        // so we shadow getMin/getMode/getMax display via the narration label only;
-        // the on-bar label is rendered by the parent — we just let the integers show
-        // and rely on the user understanding the /100 scale from the "Smooth" prefix,
-        // which is consistent with how "Swing  Min:80  Mode:150  Max:250 ms" reads.
-        // If you want full decimal labels, swap TripleSlider's renderWidget label
-        // line to use a virtual getLabelText() hook and override it here.
     }
 
     // -------------------------------------------------------------------------
@@ -328,7 +373,10 @@ public final class EnemyBoxesScreen extends Screen {
     // -------------------------------------------------------------------------
 
     private String tabLabel(Tab tab) {
-        String name = tab.name().charAt(0) + tab.name().substring(1).toLowerCase();
+        String name = switch (tab) {
+            case HIDEONLEAF -> "Hideonleaf";
+            default -> tab.name().charAt(0) + tab.name().substring(1).toLowerCase();
+        };
         return activeTab == tab ? "§e§l" + name : name;
     }
 
