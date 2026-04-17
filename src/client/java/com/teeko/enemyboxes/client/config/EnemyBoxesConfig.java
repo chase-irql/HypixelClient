@@ -1,7 +1,8 @@
-package com.teeko.enemyboxes.client;
+package com.teeko.enemyboxes.client.config;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.teeko.enemyboxes.client.state.EnemyBoxesState;
 import net.fabricmc.loader.api.FabricLoader;
 
 import java.io.*;

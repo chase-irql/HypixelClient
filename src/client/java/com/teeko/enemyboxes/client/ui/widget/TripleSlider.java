@@ -1,4 +1,4 @@
-package com.teeko.enemyboxes.client;
+package com.teeko.enemyboxes.client.ui.widget;
 
 import com.mojang.blaze3d.platform.cursor.CursorTypes;
 import net.minecraft.client.Minecraft;

@@ -4,10 +4,10 @@
 	"package": "com.teeko.enemyboxes.client.mixin",
 	"compatibilityLevel": "JAVA_21",
 	"client": [
-		"MixinLevelRenderer",
-		"GameRendererMixin",
-		"MixinMinecraft",
-		"MinecraftAccessor"
+		"render.LevelRendererMixin",
+		"render.GameRendererMixin",
+		"input.MinecraftAttackMixin",
+		"accessor.MinecraftAccessor"
 	],
 	"injectors": {
 		"defaultRequire": 1

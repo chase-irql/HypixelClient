@@ -1,5 +1,6 @@
-package com.teeko.enemyboxes.client;
+package com.teeko.enemyboxes.client.feature.hideonleaf;
 
+import com.teeko.enemyboxes.client.state.EnemyBoxesState;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.monster.Shulker;

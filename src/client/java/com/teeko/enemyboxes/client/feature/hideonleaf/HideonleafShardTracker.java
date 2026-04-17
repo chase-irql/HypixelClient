@@ -1,7 +1,8 @@
-package com.teeko.enemyboxes.client;
+package com.teeko.enemyboxes.client.feature.hideonleaf;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.teeko.enemyboxes.client.state.EnemyBoxesState;
 import net.minecraft.network.chat.Component;
 
 import java.net.URI;

@@ -1,5 +1,10 @@
-package com.teeko.enemyboxes.client;
+package com.teeko.enemyboxes.client.ui.screen;
 
+import com.teeko.enemyboxes.client.combat.AutoClicker;
+import com.teeko.enemyboxes.client.config.EnemyBoxesConfig;
+import com.teeko.enemyboxes.client.feature.hideonleaf.HideonleafShardTracker;
+import com.teeko.enemyboxes.client.state.EnemyBoxesState;
+import com.teeko.enemyboxes.client.ui.widget.TripleSlider;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractSliderButton;

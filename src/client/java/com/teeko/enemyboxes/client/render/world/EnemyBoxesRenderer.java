@@ -1,5 +1,7 @@
-package com.teeko.enemyboxes.client;
+package com.teeko.enemyboxes.client.render.world;
 
+import com.teeko.enemyboxes.client.EnemyBoxesClient;
+import com.teeko.enemyboxes.client.state.EnemyBoxesState;
 import com.mojang.blaze3d.buffers.GpuBuffer;
 import com.mojang.blaze3d.buffers.GpuBufferSlice;
 import com.mojang.blaze3d.pipeline.RenderPipeline;

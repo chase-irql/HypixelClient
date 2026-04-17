@@ -1,4 +1,4 @@
-package com.teeko.enemyboxes.client.mixin;
+package com.teeko.enemyboxes.client.mixin.accessor;
 
 import net.minecraft.client.Minecraft;
 import org.spongepowered.asm.mixin.Mixin;

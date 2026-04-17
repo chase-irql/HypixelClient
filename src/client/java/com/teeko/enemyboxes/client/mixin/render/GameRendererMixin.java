@@ -1,10 +1,11 @@
-package com.teeko.enemyboxes.client.mixin;
+package com.teeko.enemyboxes.client.mixin.render;
 
-import com.teeko.enemyboxes.client.AutoClicker;
-import com.teeko.enemyboxes.client.EnemyBoxesAim;
 import com.teeko.enemyboxes.client.EnemyBoxesClient;
-import com.teeko.enemyboxes.client.EnemyBoxesRenderer;
-import com.teeko.enemyboxes.client.EnemyBoxesState;
+import com.teeko.enemyboxes.client.combat.AutoClicker;
+import com.teeko.enemyboxes.client.feature.lockon.EnemyBoxesAim;
+import com.teeko.enemyboxes.client.feature.lockon.LockOnController;
+import com.teeko.enemyboxes.client.render.world.EnemyBoxesRenderer;
+import com.teeko.enemyboxes.client.state.EnemyBoxesState;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GameRenderer;
@@ -55,7 +56,7 @@ public class GameRendererMixin {
         // Run attack automation only after vanilla refreshes pick()/hitResult
         // so both paths see the same target state the player sees this frame.
         Minecraft client = Minecraft.getInstance();
-        EnemyBoxesClient.tickAutoSwing(client);
+        LockOnController.tickAutoSwing(client);
         AutoClicker.tick(client);
     }
 }

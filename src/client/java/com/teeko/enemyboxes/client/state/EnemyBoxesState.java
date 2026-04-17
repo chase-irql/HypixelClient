@@ -1,4 +1,4 @@
-package com.teeko.enemyboxes.client;
+package com.teeko.enemyboxes.client.state;
 
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.decoration.ArmorStand;

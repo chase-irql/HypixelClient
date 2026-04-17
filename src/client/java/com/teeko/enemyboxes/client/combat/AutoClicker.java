@@ -1,6 +1,8 @@
-package com.teeko.enemyboxes.client;
+package com.teeko.enemyboxes.client.combat;
 
-import com.teeko.enemyboxes.client.mixin.MinecraftAccessor;
+import com.teeko.enemyboxes.client.EnemyBoxesClient;
+import com.teeko.enemyboxes.client.mixin.accessor.MinecraftAccessor;
+import com.teeko.enemyboxes.client.state.EnemyBoxesState;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.phys.HitResult;
 

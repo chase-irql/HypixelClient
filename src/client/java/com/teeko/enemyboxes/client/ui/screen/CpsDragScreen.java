@@ -1,5 +1,8 @@
-package com.teeko.enemyboxes.client;
+package com.teeko.enemyboxes.client.ui.screen;
 
+import com.teeko.enemyboxes.client.config.EnemyBoxesConfig;
+import com.teeko.enemyboxes.client.render.hud.CpsWidget;
+import com.teeko.enemyboxes.client.state.EnemyBoxesState;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
@@ -44,7 +47,7 @@ public final class CpsDragScreen extends Screen {
                 4, 4, 0xFFAAAAAA, true);
 
         // CPS widget
-        EnemyBoxesHud.renderCps(graphics, client,
+        CpsWidget.render(graphics, client,
                 EnemyBoxesState.cpsX, EnemyBoxesState.cpsY,
                 EnemyBoxesState.cpsScale, isHoveringWidget(mouseX, mouseY));
 
@@ -74,8 +77,8 @@ public final class CpsDragScreen extends Screen {
     public boolean mouseDragged(net.minecraft.client.input.MouseButtonEvent event, double dx, double dy) {
         if (dragging) {
             Minecraft client = Minecraft.getInstance();
-            int w = EnemyBoxesHud.getCpsWidth(client, EnemyBoxesState.cpsScale);
-            int h = EnemyBoxesHud.getCpsHeight(EnemyBoxesState.cpsScale);
+            int w = CpsWidget.getWidth(client, EnemyBoxesState.cpsScale);
+            int h = CpsWidget.getHeight(EnemyBoxesState.cpsScale);
 
             float newX = (float)event.x() - dragOffX;
             float newY = (float)event.y() - dragOffY;
@@ -100,8 +103,8 @@ public final class CpsDragScreen extends Screen {
 
     private boolean isHoveringWidget(int mouseX, int mouseY) {
         Minecraft client = Minecraft.getInstance();
-        int w = EnemyBoxesHud.getCpsWidth(client, EnemyBoxesState.cpsScale);
-        int h = EnemyBoxesHud.getCpsHeight(EnemyBoxesState.cpsScale);
+        int w = CpsWidget.getWidth(client, EnemyBoxesState.cpsScale);
+        int h = CpsWidget.getHeight(EnemyBoxesState.cpsScale);
         return mouseX >= EnemyBoxesState.cpsX && mouseX <= EnemyBoxesState.cpsX + w
                 && mouseY >= EnemyBoxesState.cpsY && mouseY <= EnemyBoxesState.cpsY + h;
     }
