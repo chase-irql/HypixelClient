@@ -1,6 +1,8 @@
 package com.teeko.enemyboxes.client.mixin;
 
+import com.teeko.enemyboxes.client.AutoClicker;
 import com.teeko.enemyboxes.client.EnemyBoxesAim;
+import com.teeko.enemyboxes.client.EnemyBoxesClient;
 import com.teeko.enemyboxes.client.EnemyBoxesRenderer;
 import com.teeko.enemyboxes.client.EnemyBoxesState;
 import net.minecraft.client.DeltaTracker;
@@ -26,6 +28,8 @@ public class GameRendererMixin {
         Minecraft client = Minecraft.getInstance();
         if (client.level == null || client.player == null) return;
 
+        if (!EnemyBoxesClient.isPlayerActive(client)) return;
+
         // Regular aimbot — aims at the locked living entity
         if (EnemyBoxesState.aimbotEnabled && EnemyBoxesState.lockedTarget != null) {
             for (Entity entity : client.level.entitiesForRendering()) {
@@ -44,5 +48,14 @@ public class GameRendererMixin {
                 break;
             }
         }
+    }
+
+    @Inject(method = "render", at = @At("TAIL"))
+    private void onRenderTail(DeltaTracker deltaTracker, boolean bl, CallbackInfo ci) {
+        // Run attack automation only after vanilla refreshes pick()/hitResult
+        // so both paths see the same target state the player sees this frame.
+        Minecraft client = Minecraft.getInstance();
+        EnemyBoxesClient.tickAutoSwing(client);
+        AutoClicker.tick(client);
     }
 }

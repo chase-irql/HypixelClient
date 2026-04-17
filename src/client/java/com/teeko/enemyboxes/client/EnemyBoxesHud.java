@@ -47,14 +47,26 @@ public final class EnemyBoxesHud {
             renderSnaplines(graphics, client, tickDelta);
         }
 
-        // Hunt debug overlay (top-right corner)
-        if (EnemyBoxesState.autoHuntEnabled && client.level != null) {
+        // Box distance labels
+        if (EnemyBoxesState.showBoxDistance && client.level != null && client.player != null
+                && (EnemyBoxesState.enabled || EnemyBoxesState.autoHuntEnabled)) {
+            renderBoxDistances(graphics, client, tickDelta);
+        }
+
+        // Hunt / shard tracker overlay (top-right corner)
+        if ((EnemyBoxesState.autoHuntEnabled || EnemyBoxesState.shardTrackerEnabled)
+                && client.level != null) {
             renderHuntDebug(graphics, client);
         }
 
         // CPS counter
         if (EnemyBoxesState.showCps) {
             renderCps(graphics, client, EnemyBoxesState.cpsX, EnemyBoxesState.cpsY, EnemyBoxesState.cpsScale, false);
+        }
+
+        // Auto-clicker activity graph
+        if (EnemyBoxesState.showClickGraph) {
+            renderClickGraph(graphics, client);
         }
     }
 
@@ -80,9 +92,11 @@ public final class EnemyBoxesHud {
         // Collect entities to draw lines to — two independent sources:
         //   1) Normal snaplines: ESP-matched entities when the toggle is on
         //   2) Hunt snaplines:   all alive Shulkers when auto hunt is on
-        List<Entity> toRender  = new ArrayList<>();
-        Entity closestEntity   = null;
-        double closestDist     = Double.MAX_VALUE;
+        List<Entity> toRender    = new ArrayList<>();
+        Entity closestEntity     = null;
+        double closestDist       = Double.MAX_VALUE;
+        Entity secondEntity      = null;
+        double secondDist        = Double.MAX_VALUE;
 
         for (Entity entity : client.level.entitiesForRendering()) {
             if (entity == client.player) continue;
@@ -107,14 +121,20 @@ public final class EnemyBoxesHud {
             toRender.add(entity);
             double dist = client.player.distanceTo(entity);
             if (dist < closestDist) {
+                secondDist    = closestDist;
+                secondEntity  = closestEntity;
                 closestDist   = dist;
                 closestEntity = entity;
+            } else if (dist < secondDist) {
+                secondDist   = dist;
+                secondEntity = entity;
             }
         }
 
         if (toRender.isEmpty()) return;
 
         final Entity finalClosest = closestEntity;
+        final Entity finalSecond  = secondEntity;
         int thickness = EnemyBoxesState.snaplineThickness;
 
         int screenW = client.getWindow().getGuiScaledWidth();
@@ -122,7 +142,8 @@ public final class EnemyBoxesHud {
 
         for (Entity entity : toRender) {
             boolean isClosest = entity == finalClosest;
-            if (EnemyBoxesState.snaplinesOnlyClosest && !isClosest) continue;
+            boolean isSecond  = entity == finalSecond;
+            if (EnemyBoxesState.snaplinesOnlyClosest && !isClosest && !isSecond) continue;
 
             // Lerp position between previous and current tick for smooth sub-tick motion
             double lerpX = entity.xOld + (entity.getX() - entity.xOld) * tickDelta;
@@ -178,9 +199,68 @@ public final class EnemyBoxesHud {
                 sy = clamped.y();
             }
 
-            // Green for closest entity, red for all others
-            int color = isClosest ? 0xFF00FF00 : 0xFFFF0000;
+            // Green for closest, yellow for 2nd closest, red for all others
+            int color = isClosest ? 0xFF00FF00 : isSecond ? 0xFFFFFF00 : 0xFFFF0000;
             drawThickLine(graphics, (int) cx, (int) cy, (int) Math.round(sx), (int) Math.round(sy), thickness, color);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Box distance labels
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private static void renderBoxDistances(GuiGraphics graphics, Minecraft client, float tickDelta) {
+        if (client.gameRenderer == null) return;
+
+        Camera camera = client.gameRenderer.getMainCamera();
+        float cx = client.getWindow().getGuiScaledWidth()  / 2f;
+        float cy = client.getWindow().getGuiScaledHeight() / 2f;
+
+        Vec3 camPos = camera.position();
+        Vector3fc forwardVec = camera.forwardVector();
+        Vec3 camForward = new Vec3(forwardVec.x(), forwardVec.y(), forwardVec.z());
+
+        int screenW = client.getWindow().getGuiScaledWidth();
+        int screenH = client.getWindow().getGuiScaledHeight();
+
+        for (Entity entity : client.level.entitiesForRendering()) {
+            if (entity == client.player) continue;
+
+            boolean include = false;
+            if (EnemyBoxesState.enabled && entity instanceof LivingEntity living && living.isAlive()
+                    && EnemyBoxesState.matches(living)) {
+                include = true;
+            }
+            if (EnemyBoxesState.autoHuntEnabled
+                    && entity instanceof Shulker s && s.isAlive()) {
+                include = true;
+            }
+            if (!include) continue;
+
+            // Lerp to the top-center of the bounding box
+            double lerpX = entity.xOld + (entity.getX() - entity.xOld) * tickDelta;
+            double lerpY = entity.yOld + (entity.getY() - entity.yOld) * tickDelta
+                           + entity.getBbHeight();
+            double lerpZ = entity.zOld + (entity.getZ() - entity.zOld) * tickDelta;
+            Vec3 topPos = new Vec3(lerpX, lerpY, lerpZ);
+
+            // Skip entities behind the camera
+            if (topPos.subtract(camPos).dot(camForward) <= 0.0) continue;
+
+            Vec3 projected = client.gameRenderer.projectPointToScreen(topPos);
+            if (!Double.isFinite(projected.x) || !Double.isFinite(projected.y)) continue;
+
+            double sx = cx + projected.x * cx;
+            double sy = cy - projected.y * cy;
+
+            if (sx < 0 || sx >= screenW || sy < -16 || sy >= screenH) continue;
+
+            String text  = String.format("%.1fm", client.player.distanceTo(entity));
+            int    textW = client.font.width(text);
+            int    tx    = (int)(sx - textW / 2.0);
+            int    ty    = (int) sy - 12; // a few pixels above the box top
+
+            graphics.drawString(client.font, text, tx, ty, 0xFFFFFFFF, true);
         }
     }
 
@@ -243,28 +323,155 @@ public final class EnemyBoxesHud {
     // Hunt debug overlay
     // ─────────────────────────────────────────────────────────────────────────
 
-    private static void renderHuntDebug(GuiGraphics graphics, Minecraft client) {
-        String line1 = "[Hunt] " + HideonleafHunt.debugState;
-        String line2 = HideonleafHunt.debugShulkerDist >= 0
-                ? "Shulker: " + String.format("%.1f", HideonleafHunt.debugShulkerDist) + "m"
-                : "Shulker: none";
-        String line3 = HideonleafHunt.debugBulletDist >= 0
-                ? "Bullet: "  + String.format("%.1f", HideonleafHunt.debugBulletDist)
-                  + "m [" + HideonleafHunt.debugBulletState + "]"
-                : "Bullet: none";
+    private record HudLine(String text, int color) {}
 
-        int lineH  = 10;
-        int maxW   = Math.max(client.font.width(line1),
-                     Math.max(client.font.width(line2), client.font.width(line3)));
+    private static void renderHuntDebug(GuiGraphics graphics, Minecraft client) {
+        List<HudLine> lines = new ArrayList<>();
+
+        // ── Auto-hunt state ───────────────────────────────────────────────────
+        if (EnemyBoxesState.autoHuntEnabled) {
+            String shulker = HideonleafHunt.debugShulkerDist >= 0
+                    ? "Shulker: " + String.format("%.1f", HideonleafHunt.debugShulkerDist) + "m"
+                    : "Shulker: none";
+            String bullet = HideonleafHunt.debugBulletDist >= 0
+                    ? "Bullet: " + String.format("%.1f", HideonleafHunt.debugBulletDist)
+                      + "m [" + HideonleafHunt.debugBulletState + "]"
+                    : "Bullet: none";
+            lines.add(new HudLine("[Hunt] " + HideonleafHunt.debugState, 0xFFFFFF00));
+            lines.add(new HudLine(shulker,                               0xFFFFFFFF));
+            lines.add(new HudLine(bullet,                                0xFFFFFFFF));
+        }
+
+        // ── Shard tracker ─────────────────────────────────────────────────────
+        if (EnemyBoxesState.shardTrackerEnabled) {
+            HideonleafShardTracker.updateComputed();
+            String price = HideonleafShardTracker.priceLoaded
+                    ? HideonleafShardTracker.fmtPrice(HideonleafShardTracker.sellPrice)
+                    : "...";
+            lines.add(new HudLine("Shards: "        + HideonleafShardTracker.totalShards,                             0xFF00FF00));
+            lines.add(new HudLine("Shard Price: "   + price,                                                          0xFFFFFFFF));
+            lines.add(new HudLine("Session Value: " + HideonleafShardTracker.fmtCoins(HideonleafShardTracker.sessionCoins), 0xFFFFFFFF));
+            lines.add(new HudLine("Coins/hr: "      + HideonleafShardTracker.fmtCoins(HideonleafShardTracker.coinsPerHour), 0xFFFFFFFF));
+        }
+
+        if (lines.isEmpty()) return;
+
+        int lineH = 10;
+        int maxW  = 0;
+        for (HudLine l : lines) maxW = Math.max(maxW, client.font.width(l.text()));
 
         // Draw in the top-right corner so it doesn't overlap the CPS widget
         int bx = client.getWindow().getGuiScaledWidth() - maxW - 8;
         int by = 4;
 
-        graphics.fill(bx - 2, by - 2, bx + maxW + 4, by + lineH * 3 + 2, 0xAA000000);
-        graphics.drawString(client.font, line1, bx, by,            0xFFFFFF00, true);
-        graphics.drawString(client.font, line2, bx, by + lineH,    0xFFFFFFFF, true);
-        graphics.drawString(client.font, line3, bx, by + lineH * 2, 0xFFFFFFFF, true);
+        graphics.fill(bx - 2, by - 2, bx + maxW + 4, by + lineH * lines.size() + 2, 0xAA000000);
+        for (int i = 0; i < lines.size(); i++) {
+            HudLine l = lines.get(i);
+            graphics.drawString(client.font, l.text(), bx, by + lineH * i, l.color(), true);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Auto-clicker activity graph
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private static final int GRAPH_W   = 240;
+    private static final int GRAPH_H   = 68;
+    private static final int GRAPH_PAD = 6;
+
+    private static void renderClickGraph(GuiGraphics graphics, Minecraft client) {
+        int screenH = client.getWindow().getGuiScaledHeight();
+
+        // Position: bottom-left, above the hotbar (hotbar ≈ 22px + 6px clearance)
+        int gx = 4;
+        int gy = screenH - 22 - 6 - GRAPH_H;
+
+        // Background
+        graphics.fill(gx, gy, gx + GRAPH_W, gy + GRAPH_H, 0xAA000000);
+
+        float plotX0 = gx + GRAPH_PAD;
+        float plotX1 = gx + GRAPH_W - GRAPH_PAD;
+        float plotY0 = gy + GRAPH_PAD + 8; // leave room for "Live Activity" label
+        float plotY1 = gy + GRAPH_H - GRAPH_PAD;
+        float plotW  = plotX1 - plotX0;
+        float plotH  = plotY1 - plotY0;
+
+        int   minCps  = EnemyBoxesState.acCpsMin;
+        int   modeCps = EnemyBoxesState.acCpsMode;
+        int   maxCps  = EnemyBoxesState.acCpsMax;
+
+        // Y-axis range: extend 40% below min and 40% above max to show outliers,
+        // matching the C++ reference implementation.
+        float yLo    = minCps  * 0.4f;
+        float yHi    = maxCps  * 1.4f;
+        float yRange = Math.max(yHi - yLo, 0.1f);
+
+        // Convert a CPS value to a Y pixel coordinate (higher CPS = higher on screen)
+        // Extracted as a small lambda-equivalent via a local method pattern inline:
+        // y = plotY0 + (1 - (cps - yLo) / yRange) * plotH
+        float minRefY  = plotY0 + (1f - (minCps  - yLo) / yRange) * plotH;
+        float modeRefY = plotY0 + (1f - (modeCps - yLo) / yRange) * plotH;
+        float maxRefY  = plotY0 + (1f - (maxCps  - yLo) / yRange) * plotH;
+
+        // Reference lines: dim blue (min), yellow (mode), red (max)
+        drawLine(graphics, (int)plotX0, (int)minRefY,  (int)plotX1, (int)minRefY,  0x4A4AB4FF);
+        drawLine(graphics, (int)plotX0, (int)modeRefY, (int)plotX1, (int)modeRefY, 0x4AFFC840);
+        drawLine(graphics, (int)plotX0, (int)maxRefY,  (int)plotX1, (int)maxRefY,  0x4AFF5A5A);
+
+        // "Live Activity" label (top-left inside the box)
+        graphics.drawString(client.font, "Live Activity",
+                gx + GRAPH_PAD, gy + GRAPH_PAD - 1, 0xFFAAAAAA, false);
+
+        // History line + dots
+        int count = AutoClicker.historyCount;
+        int head  = AutoClicker.historyHead;
+
+        if (count > 1) {
+            int   visible = Math.min(count, 80);
+            float step    = plotW / (float)(visible - 1);
+
+            int prevPx = -1, prevPy = -1;
+
+            for (int i = 0; i < visible; i++) {
+                int   idx = (head - visible + i + AutoClicker.HISTORY_SIZE) % AutoClicker.HISTORY_SIZE;
+                float cps = AutoClicker.clickHistory[idx];
+
+                int px = (int)(plotX0 + i * step);
+                int py = (int)(plotY0 + (1f - (cps - yLo) / yRange) * plotH);
+                py = Math.max((int)plotY0, Math.min((int)plotY1, py));
+
+                if (prevPx >= 0) {
+                    drawLine(graphics, prevPx, prevPy, px, py, 0xCC78DCA0); // green line
+                }
+                // Dot
+                graphics.fill(px - 1, py - 1, px + 2, py + 2, 0xFF78DCA0);
+
+                prevPx = px;
+                prevPy = py;
+            }
+
+            // Y-axis CPS labels — iterate top-to-bottom (max→mode→min), skip any
+            // label whose top edge would land within 9px of the previous one drawn.
+            int[] labelRefY  = { (int)maxRefY,  (int)modeRefY, (int)minRefY  };
+            int[] labelCps   = { maxCps,         modeCps,       minCps        };
+            int[] labelColor = { 0xFFFF5A5A,    0xFFFFC840,    0xFF4AB4FF    };
+            int   lastY      = Integer.MIN_VALUE;
+            for (int i = 0; i < 3; i++) {
+                int ly = labelRefY[i] - 8; // draw 8px above the reference line
+                if (ly - lastY < 9) continue; // would overlap previous label
+                graphics.drawString(client.font, labelCps[i] + "",
+                        gx + GRAPH_PAD, ly, labelColor[i], false);
+                lastY = ly;
+            }
+        } else {
+            // No data yet — centred hint text
+            String hint = "Hold LMB to see activity";
+            int    tw   = client.font.width(hint);
+            graphics.drawString(client.font, hint,
+                    gx + (GRAPH_W - tw) / 2,
+                    gy + GRAPH_H / 2 - 4,
+                    0xFF555555, false);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────

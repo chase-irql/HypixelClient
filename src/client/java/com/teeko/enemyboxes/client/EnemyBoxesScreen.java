@@ -173,6 +173,15 @@ public final class EnemyBoxesScreen extends Screen {
             @Override protected void updateMessage() { setMessage(Component.literal("Line Thickness: " + EnemyBoxesState.snaplineThickness)); }
             @Override protected void applyValue()    { EnemyBoxesState.snaplineThickness = 1 + (int) Math.round(this.value * 4); }
         });
+        top += BTN_H + MARGIN;
+
+        this.addRenderableWidget(Button.builder(
+                Component.literal(EnemyBoxesState.showBoxDistance ? "Box Distance: ON" : "Box Distance: OFF"),
+                btn -> {
+                    EnemyBoxesState.showBoxDistance = !EnemyBoxesState.showBoxDistance;
+                    btn.setMessage(Component.literal(EnemyBoxesState.showBoxDistance ? "Box Distance: ON" : "Box Distance: OFF"));
+                }
+        ).bounds(left, top, PANEL_W, BTN_H).build());
     }
 
     // -------------------------------------------------------------------------
@@ -294,6 +303,43 @@ public final class EnemyBoxesScreen extends Screen {
                 EnemyBoxesState.reactionDelayMax  = getMax();
             }
         });
+        top += BTN_H + MARGIN * 3; // extra gap to visually separate sections
+
+        // ── Auto Clicker ──────────────────────────────────────────────────────
+        this.addRenderableWidget(Button.builder(
+                Component.literal(EnemyBoxesState.autoClickerEnabled ? "Auto Clicker: ON" : "Auto Clicker: OFF"),
+                btn -> {
+                    EnemyBoxesState.autoClickerEnabled = !EnemyBoxesState.autoClickerEnabled;
+                    if (!EnemyBoxesState.autoClickerEnabled) AutoClicker.resetState();
+                    btn.setMessage(Component.literal(EnemyBoxesState.autoClickerEnabled ? "Auto Clicker: ON" : "Auto Clicker: OFF"));
+                }
+        ).bounds(left, top, PANEL_W, BTN_H).build());
+        top += BTN_H + MARGIN;
+
+        this.addRenderableWidget(new TripleSlider(
+                left, top, PANEL_W, BTN_H,
+                "Auto Click", "CPS",
+                5, 20,
+                EnemyBoxesState.acCpsMin,
+                EnemyBoxesState.acCpsMode,
+                EnemyBoxesState.acCpsMax
+        ) {
+            @Override
+            protected void onValueChanged() {
+                EnemyBoxesState.acCpsMin  = getMin();
+                EnemyBoxesState.acCpsMode = getMode();
+                EnemyBoxesState.acCpsMax  = getMax();
+            }
+        });
+        top += BTN_H + MARGIN;
+
+        this.addRenderableWidget(Button.builder(
+                Component.literal(EnemyBoxesState.showClickGraph ? "Click Graph: ON" : "Click Graph: OFF"),
+                btn -> {
+                    EnemyBoxesState.showClickGraph = !EnemyBoxesState.showClickGraph;
+                    btn.setMessage(Component.literal(EnemyBoxesState.showClickGraph ? "Click Graph: ON" : "Click Graph: OFF"));
+                }
+        ).bounds(left, top, PANEL_W, BTN_H).build());
     }
 
     // -------------------------------------------------------------------------
@@ -331,6 +377,8 @@ public final class EnemyBoxesScreen extends Screen {
     // -------------------------------------------------------------------------
 
     private void buildHideonleafTab(int left, int top) {
+        int halfW = (PANEL_W - MARGIN) / 2;
+
         this.addRenderableWidget(Button.builder(
                 Component.literal(EnemyBoxesState.autoHuntEnabled ? "Auto Hunt: ON" : "Auto Hunt: OFF"),
                 btn -> {
@@ -338,6 +386,22 @@ public final class EnemyBoxesScreen extends Screen {
                     btn.setMessage(Component.literal(EnemyBoxesState.autoHuntEnabled ? "Auto Hunt: ON" : "Auto Hunt: OFF"));
                 }
         ).bounds(left, top, PANEL_W, BTN_H).build());
+        top += BTN_H + MARGIN;
+
+        // Shard tracker toggle — resets session on every toggle
+        this.addRenderableWidget(Button.builder(
+                Component.literal(EnemyBoxesState.shardTrackerEnabled ? "Shard Tracker: ON" : "Shard Tracker: OFF"),
+                btn -> {
+                    EnemyBoxesState.shardTrackerEnabled = !EnemyBoxesState.shardTrackerEnabled;
+                    HideonleafShardTracker.resetSession();
+                    btn.setMessage(Component.literal(EnemyBoxesState.shardTrackerEnabled ? "Shard Tracker: ON" : "Shard Tracker: OFF"));
+                }
+        ).bounds(left, top, halfW, BTN_H).build());
+
+        this.addRenderableWidget(Button.builder(
+                Component.literal("Reset Session"),
+                btn -> HideonleafShardTracker.resetSession()
+        ).bounds(left + halfW + MARGIN, top, halfW, BTN_H).build());
     }
 
     // -------------------------------------------------------------------------

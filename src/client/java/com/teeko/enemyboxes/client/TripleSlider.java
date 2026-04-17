@@ -25,6 +25,7 @@ public class TripleSlider extends AbstractWidget {
     private final int rangeMin;
     private final int rangeMax;
     private final String label;
+    private final String unit;
 
     private Handle dragging = Handle.NONE;
 
@@ -32,12 +33,21 @@ public class TripleSlider extends AbstractWidget {
     private double normMode;
     private double normMax;
 
+    /** Convenience constructor — defaults unit to "ms". */
     public TripleSlider(int x, int y, int width, int height,
                         String label,
                         int rangeMin, int rangeMax,
                         int initMin, int initMode, int initMax) {
+        this(x, y, width, height, label, "ms", rangeMin, rangeMax, initMin, initMode, initMax);
+    }
+
+    public TripleSlider(int x, int y, int width, int height,
+                        String label, String unit,
+                        int rangeMin, int rangeMax,
+                        int initMin, int initMode, int initMax) {
         super(x, y, width, height, Component.empty());
         this.label    = label;
+        this.unit     = unit;
         this.rangeMin = rangeMin;
         this.rangeMax = rangeMax;
         this.normMin  = norm(initMin,  rangeMin, rangeMax);
@@ -93,7 +103,7 @@ public class TripleSlider extends AbstractWidget {
 
         // Label centered on bar
         var font = Minecraft.getInstance().font;
-        String text = label + "  Min:" + getMin() + "  Mode:" + getMode() + "  Max:" + getMax() + " ms";
+        String text = label + "  Min:" + getMin() + "  Mode:" + getMode() + "  Max:" + getMax() + " " + unit;
         int tx = getX() + getWidth() / 2 - font.width(text) / 2;
         int ty = getY() + (getHeight() - 8) / 2;
         g.drawString(font, text, tx, ty, 0xFFFFFFFF, true);
@@ -199,6 +209,6 @@ public class TripleSlider extends AbstractWidget {
     @Override
     protected void updateWidgetNarration(NarrationElementOutput out) {
         out.add(NarratedElementType.TITLE, Component.literal(
-                label + " Min:" + getMin() + " Mode:" + getMode() + " Max:" + getMax() + "ms"));
+                label + " Min:" + getMin() + " Mode:" + getMode() + " Max:" + getMax() + " " + unit));
     }
 }

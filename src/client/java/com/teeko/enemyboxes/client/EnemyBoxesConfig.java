@@ -62,8 +62,17 @@ public final class EnemyBoxesConfig {
         boolean drawOffscreenEnemies = false;
         boolean snaplinesOnlyClosest = false;
         int     snaplineThickness    = 1;
-        // Hideonleaf hunt
-        boolean autoHuntEnabled = false;
+        // Box labels
+        boolean showBoxDistance = false;
+        // Hideonleaf hunt & shard tracker
+        boolean autoHuntEnabled      = false;
+        boolean shardTrackerEnabled  = false;
+        // Auto-clicker
+        boolean autoClickerEnabled = false;
+        int     acCpsMin           = 7;
+        int     acCpsMode          = 12;
+        int     acCpsMax           = 16;
+        boolean showClickGraph     = false;
     }
 
     public static void save() {
@@ -95,7 +104,14 @@ public final class EnemyBoxesConfig {
         d.drawOffscreenEnemies   = EnemyBoxesState.drawOffscreenEnemies;
         d.snaplinesOnlyClosest   = EnemyBoxesState.snaplinesOnlyClosest;
         d.snaplineThickness      = EnemyBoxesState.snaplineThickness;
+        d.showBoxDistance        = EnemyBoxesState.showBoxDistance;
         d.autoHuntEnabled        = EnemyBoxesState.autoHuntEnabled;
+        d.shardTrackerEnabled    = EnemyBoxesState.shardTrackerEnabled;
+        d.autoClickerEnabled     = EnemyBoxesState.autoClickerEnabled;
+        d.acCpsMin               = EnemyBoxesState.acCpsMin;
+        d.acCpsMode              = EnemyBoxesState.acCpsMode;
+        d.acCpsMax               = EnemyBoxesState.acCpsMax;
+        d.showClickGraph         = EnemyBoxesState.showClickGraph;
 
         d.targets = EnemyBoxesState.targets.entrySet().stream()
                 .map(e -> new TargetEntry(e.getKey(), e.getValue()))
@@ -143,7 +159,14 @@ public final class EnemyBoxesConfig {
             EnemyBoxesState.drawOffscreenEnemies   = d.drawOffscreenEnemies;
             EnemyBoxesState.snaplinesOnlyClosest   = d.snaplinesOnlyClosest;
             EnemyBoxesState.snaplineThickness      = d.snaplineThickness;
+            EnemyBoxesState.showBoxDistance        = d.showBoxDistance;
             EnemyBoxesState.autoHuntEnabled        = d.autoHuntEnabled;
+            EnemyBoxesState.shardTrackerEnabled    = d.shardTrackerEnabled;
+            EnemyBoxesState.autoClickerEnabled     = d.autoClickerEnabled;
+            EnemyBoxesState.acCpsMin               = d.acCpsMin;
+            EnemyBoxesState.acCpsMode              = d.acCpsMode;
+            EnemyBoxesState.acCpsMax               = d.acCpsMax;
+            EnemyBoxesState.showClickGraph         = d.showClickGraph;
 
             EnemyBoxesState.targets.clear();
             if (d.targets != null) {

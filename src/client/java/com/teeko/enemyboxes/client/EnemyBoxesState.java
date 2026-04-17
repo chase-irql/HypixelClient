@@ -49,6 +49,19 @@ public final class EnemyBoxesState {
     public static boolean snaplinesOnlyClosest = false;
     public static int     snaplineThickness   = 1;
 
+    // Box labels
+    public static boolean showBoxDistance = false;
+
+    // Hideonleaf shard tracker
+    public static boolean shardTrackerEnabled = false;
+
+    // Auto-clicker
+    public static boolean autoClickerEnabled = false;
+    public static int     acCpsMin           = 7;
+    public static int     acCpsMode          = 12;
+    public static int     acCpsMax           = 16;
+    public static boolean showClickGraph     = false;
+
     // Hideonleaf auto hunt
     public static boolean autoHuntEnabled    = false;
     public static UUID    huntLockedShulker  = null;

@@ -5,16 +5,17 @@ import com.teeko.enemyboxes.client.mixin.MinecraftAccessor;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
-import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import org.lwjgl.glfw.GLFW;
@@ -61,13 +62,11 @@ public final class EnemyBoxesClient implements ClientModInitializer {
                     CATEGORY
             ));
 
-    private static long    lastSwingMs     = 0;
-    private static long    nextSwingDelayMs = -1; // -1 = not yet initialized, sample on first lock
-    private static boolean reactionPending  = false;
-    private static long    reactionFireMs   = 0;
+    private static boolean reactionPending    = false;
+    private static long    reactionFireMs     = 0;
     private static UUID    lastAutoSwingTarget = null;
-    private static long    nextHuntUseMs    = -1;
-    private static UUID    lastHuntUseTarget = null;
+    private static long    nextHuntUseMs      = -1;
+    private static UUID    lastHuntUseTarget  = null;
 
     private static final long   HUNT_INITIAL_USE_DELAY_MS = 100;
     private static final double HUNT_USE_DELAY_JITTER     = 0.10;
@@ -81,6 +80,11 @@ public final class EnemyBoxesClient implements ClientModInitializer {
 
         HudRenderCallback.EVENT.register((guiGraphics, deltaTracker) ->
                 EnemyBoxesHud.render(guiGraphics, deltaTracker.getGameTimeDeltaPartialTick(false)));
+
+        // Chat listener for shard-drop detection — overlay=true means action bar, skip those
+        ClientReceiveMessageEvents.GAME.register((message, overlay) -> {
+            if (!overlay) HideonleafShardTracker.onChatMessage(message);
+        });
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             while (OPEN_MENU_KEY.consumeClick()) {
@@ -111,7 +115,10 @@ public final class EnemyBoxesClient implements ClientModInitializer {
 
             HideonleafHunt.tick(client);
             tryAutoHuntUse(client);
-            tryAutoSwing(client);
+
+            if (EnemyBoxesState.shardTrackerEnabled) {
+                HideonleafShardTracker.tickRefresh();
+            }
         });
     }
 
@@ -137,11 +144,33 @@ public final class EnemyBoxesClient implements ClientModInitializer {
     // Auto swing
     // -------------------------------------------------------------------------
 
-    private static void tryAutoSwing(Minecraft client) {
-        if (client.level == null || client.player == null || client.gameMode == null) return;
+    /**
+     * Returns true only when the player is fully in-game and able to act:
+     * the game is not paused, no chat screen is open, and no inventory/GUI screen is open.
+     * All three conditions are covered by checking isPaused() and screen == null.
+     */
+    public static boolean isPlayerActive(Minecraft client) {
+        return !client.isPaused() && client.screen == null;
+    }
+
+    public static void tickAutoSwing(Minecraft client) {
+        if (client.level == null || client.player == null || client.gameMode == null) {
+            resetAutoSwingState();
+            return;
+        }
+        if (!isPlayerActive(client)) {
+            pauseAutoSwingState();
+            return;
+        }
 
         UUID attackTarget = getAutoSwingTarget();
         if (attackTarget == null) {
+            resetAutoSwingState();
+            return;
+        }
+
+        Entity target = findEntityByUuid(client, attackTarget);
+        if (!(target instanceof LivingEntity living) || !living.isAlive()) {
             resetAutoSwingState();
             return;
         }
@@ -152,64 +181,36 @@ public final class EnemyBoxesClient implements ClientModInitializer {
             lastAutoSwingTarget = attackTarget;
         }
 
-        long now = System.currentTimeMillis();
-
-        // Sample an initial delay the first time we have a lock, so we don't
-        // fire instantly on the very first frame of lock acquisition.
-        if (nextSwingDelayMs < 0) {
-            nextSwingDelayMs = nextTriangularDelay(
-                    EnemyBoxesState.swingDelayMin,
-                    EnemyBoxesState.swingDelayMode,
-                    EnemyBoxesState.swingDelayMax
-            );
-            lastSwingMs = now;
+        // Auto-swing should only pulse when vanilla is actually targeting the
+        // locked entity for this frame and the entity is within interaction reach.
+        if (!inReach(client, target) || !isCurrentHitTarget(client, target)) {
+            pauseAutoSwingState();
             return;
         }
 
-        if (now - lastSwingMs < nextSwingDelayMs) return;
-
-        for (Entity entity : client.level.entitiesForRendering()) {
-            if (!entity.getUUID().equals(attackTarget)) continue;
-            if (!entity.isAlive()) continue;
-
-            boolean inRange = inReach(client, entity);
-            boolean los     = !EnemyBoxesState.requireLineOfSight || hasLineOfSight(client, entity);
-
-            if (inRange && los) {
-                // First time in range with reaction delay enabled — start waiting
-                if (!reactionPending && EnemyBoxesState.randomizeReactionDelay) {
-                    reactionPending = true;
-                    reactionFireMs  = now + nextTriangularDelay(
-                            EnemyBoxesState.reactionDelayMin,
-                            EnemyBoxesState.reactionDelayMode,
-                            EnemyBoxesState.reactionDelayMax
-                    );
-                    break;
-                }
-
-                // Still waiting on reaction delay
-                if (reactionPending && now < reactionFireMs) break;
-
-                // Fire
-                reactionPending  = false;
-                recordAttack();
-                client.gameMode.attack(client.player, entity);
-                client.player.swing(InteractionHand.MAIN_HAND);
-                lastSwingMs      = now;
-                nextSwingDelayMs = nextTriangularDelay(
-                        EnemyBoxesState.swingDelayMin,
-                        EnemyBoxesState.swingDelayMode,
-                        EnemyBoxesState.swingDelayMax
-                );
-            } else {
-                reactionPending = false;
-            }
-            break;
+        long now = System.currentTimeMillis();
+        if (isNewTarget && EnemyBoxesState.randomizeReactionDelay) {
+            reactionPending = true;
+            reactionFireMs = now + nextTriangularDelay(
+                    EnemyBoxesState.reactionDelayMin,
+                    EnemyBoxesState.reactionDelayMode,
+                    EnemyBoxesState.reactionDelayMax
+            );
         }
+
+        if (reactionPending) {
+            if (now < reactionFireMs) return;
+            reactionPending = false;
+        }
+
+        if (!AutoClicker.shouldFireAutoSwing()) return;
+
+        AutoClicker.fireAttack(client);
     }
 
     private static void tryAutoHuntUse(Minecraft client) {
         if (client.level == null || client.player == null || client.gameMode == null) return;
+        if (!isPlayerActive(client)) return;
 
         UUID huntTarget = EnemyBoxesState.autoHuntEnabled ? EnemyBoxesState.huntLockedBullet : null;
         if (huntTarget == null) {
@@ -224,7 +225,7 @@ public final class EnemyBoxesClient implements ClientModInitializer {
             return;
         }
 
-        if (now < nextHuntUseMs || client.screen != null) return;
+        if (now < nextHuntUseMs) return;
 
         for (Entity entity : client.level.entitiesForRendering()) {
             if (!entity.getUUID().equals(huntTarget)) continue;
@@ -247,8 +248,8 @@ public final class EnemyBoxesClient implements ClientModInitializer {
     private static void resetAutoSwingState() {
         reactionPending = false;
         reactionFireMs = 0;
-        nextSwingDelayMs = -1;
         lastAutoSwingTarget = null;
+        AutoClicker.resetAutoSwingState();
     }
 
     private static void resetHuntUseState() {
@@ -256,14 +257,31 @@ public final class EnemyBoxesClient implements ClientModInitializer {
         lastHuntUseTarget = null;
     }
 
+    private static void pauseAutoSwingState() {
+        reactionPending = false;
+        AutoClicker.releaseAutoSwing();
+    }
+
     private static boolean inReach(Minecraft client, Entity entity) {
-        double reach = client.player.entityInteractionRange();
-        return client.player.distanceTo(entity) <= reach;
+        return isWithinReach(client, entity, client.player.entityInteractionRange());
     }
 
     private static boolean inHuntUseReach(Minecraft client, Entity entity) {
-        double reach = client.player.entityInteractionRange() + 3.5;
-        return client.player.distanceTo(entity) <= reach;
+        return isWithinReach(client, entity, client.player.entityInteractionRange() + 3.5);
+    }
+
+    private static boolean isWithinReach(Minecraft client, Entity entity, double reach) {
+        Vec3 eyePos = client.player.getEyePosition(1.0f);
+        var box = entity.getBoundingBox();
+        double closestX = clamp(eyePos.x, box.minX, box.maxX);
+        double closestY = clamp(eyePos.y, box.minY, box.maxY);
+        double closestZ = clamp(eyePos.z, box.minZ, box.maxZ);
+        return eyePos.distanceToSqr(closestX, closestY, closestZ) <= reach * reach;
+    }
+
+    private static boolean isCurrentHitTarget(Minecraft client, Entity entity) {
+        if (!(client.hitResult instanceof EntityHitResult hit)) return false;
+        return hit.getEntity().getUUID().equals(entity.getUUID());
     }
 
     private static boolean hasLineOfSight(Minecraft client, Entity entity) {
@@ -623,6 +641,17 @@ public final class EnemyBoxesClient implements ClientModInitializer {
         }
 
         return null;
+    }
+
+    private static Entity findEntityByUuid(Minecraft client, UUID uuid) {
+        for (Entity entity : client.level.entitiesForRendering()) {
+            if (entity.getUUID().equals(uuid)) return entity;
+        }
+        return null;
+    }
+
+    private static double clamp(double value, double min, double max) {
+        return Math.max(min, Math.min(max, value));
     }
 
     private static void notifyAutoHuntToggled(Minecraft client) {
