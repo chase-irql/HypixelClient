@@ -69,6 +69,8 @@ public final class EnemyBoxesState {
     public static UUID    huntLockedBullet   = null;
 
     // Targets — name -> enabled. Order preserved via LinkedHashMap.
+    public static boolean beachballMacroRunning = false;
+
     public static final Map<String, Boolean> targets = new LinkedHashMap<>();
     public static UUID lockedTarget = null;
 

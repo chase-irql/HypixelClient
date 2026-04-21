@@ -32,6 +32,11 @@ public final class EnemyBoxesKeyBindings {
             GLFW.GLFW_KEY_H
     );
 
+    public static final KeyMapping TOGGLE_BEACHBALL_KEY = register(
+            "key.enemyboxes.toggle_beachball",
+            GLFW.GLFW_KEY_J
+    );
+
     private EnemyBoxesKeyBindings() {}
 
     public static void init() {

@@ -1,5 +1,6 @@
 package com.teeko.enemyboxes.client.render.hud;
 
+import com.teeko.enemyboxes.client.feature.beachball.BeachballMacro;
 import com.teeko.enemyboxes.client.feature.hideonleaf.HideonleafHunt;
 import com.teeko.enemyboxes.client.feature.hideonleaf.HideonleafShardTracker;
 import com.teeko.enemyboxes.client.state.EnemyBoxesState;
@@ -40,6 +41,24 @@ public final class HideonleafHudOverlay {
             lines.add(new HudLine("Coins/hr: " + HideonleafShardTracker.fmtCoins(HideonleafShardTracker.coinsPerHour), 0xFFFFFFFF));
         }
 
+        if (EnemyBoxesState.beachballMacroRunning) {
+            int statusColor = EnemyBoxesState.beachballMacroRunning ? 0xFFFFCC33 : 0xFFAAAAAA;
+            int bounceColor = BeachballMacro.getBounceCount() >= 40 ? 0xFF55FF55 : 0xFFFFFFFF;
+
+            lines.add(new HudLine("[Beachball] " + BeachballMacro.getStatus(), statusColor));
+            lines.add(new HudLine("Bounces: " + BeachballMacro.getBounceCount() + "/40", bounceColor));
+
+            if (BeachballMacro.hasActiveBall()) {
+                lines.add(new HudLine(
+                        "Ball: dist=" + fmt(BeachballMacro.getLastHorizontalToPlayer())
+                                + " head=" + fmt(BeachballMacro.getLastHeadOffset()),
+                        0xFFFFFFFF
+                ));
+            } else if (BeachballMacro.getLastChatResultCount() >= 0) {
+                lines.add(new HudLine("Last Result: " + BeachballMacro.getLastChatResultCount(), 0xFFFFFFFF));
+            }
+        }
+
         if (lines.isEmpty()) return;
 
         int lineHeight = 10;
@@ -56,6 +75,10 @@ public final class HideonleafHudOverlay {
             HudLine line = lines.get(i);
             graphics.drawString(client.font, line.text(), boxX, boxY + lineHeight * i, line.color(), true);
         }
+    }
+
+    private static String fmt(double value) {
+        return Double.isNaN(value) ? "n/a" : String.format("%.2f", value);
     }
 
     private record HudLine(String text, int color) {}

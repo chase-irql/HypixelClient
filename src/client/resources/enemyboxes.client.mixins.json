@@ -4,9 +4,14 @@
 	"package": "com.teeko.enemyboxes.client.mixin",
 	"compatibilityLevel": "JAVA_21",
 	"client": [
+		"network.ClientPacketListenerBeachballMixin",
 		"render.LevelRendererMixin",
 		"render.GameRendererMixin",
+		"render.GuiGraphicsBeachballMixin",
+		"accessor.ClientInputAccessor",
 		"input.MinecraftAttackMixin",
+		"input.MinecraftFocusPauseMixin",
+		"input.KeyboardInputBeachballMixin",
 		"accessor.MinecraftAccessor"
 	],
 	"injectors": {

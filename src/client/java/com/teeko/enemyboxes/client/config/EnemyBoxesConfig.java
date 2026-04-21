@@ -163,6 +163,7 @@ public final class EnemyBoxesConfig {
             EnemyBoxesState.showBoxDistance        = d.showBoxDistance;
             EnemyBoxesState.autoHuntEnabled        = d.autoHuntEnabled;
             EnemyBoxesState.shardTrackerEnabled    = d.shardTrackerEnabled;
+            EnemyBoxesState.beachballMacroRunning  = false;
             EnemyBoxesState.autoClickerEnabled     = d.autoClickerEnabled;
             EnemyBoxesState.acCpsMin               = d.acCpsMin;
             EnemyBoxesState.acCpsMode              = d.acCpsMode;

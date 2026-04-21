@@ -443,8 +443,11 @@ public final class EnemyBoxesScreen extends Screen {
 
     private String tabLabel(Tab tab) {
         String name = switch (tab) {
-            case HIDEONLEAF -> "Hideonleaf";
-            default -> tab.name().charAt(0) + tab.name().substring(1).toLowerCase();
+            case ESP -> "ESP";
+            case AIMBOT -> "Aim";
+            case COMBAT -> "Combat";
+            case TARGETS -> "Targets";
+            case HIDEONLEAF -> "HOL";
         };
         return activeTab == tab ? "§e§l" + name : name;
     }

@@ -2,6 +2,7 @@ package com.teeko.enemyboxes.client;
 
 import com.teeko.enemyboxes.client.config.EnemyBoxesConfig;
 import com.teeko.enemyboxes.client.debug.DebugDump;
+import com.teeko.enemyboxes.client.feature.beachball.BeachballMacro;
 import com.teeko.enemyboxes.client.feature.hideonleaf.HideonleafHunt;
 import com.teeko.enemyboxes.client.feature.hideonleaf.HideonleafShardTracker;
 import com.teeko.enemyboxes.client.feature.lockon.LockOnController;
@@ -12,6 +13,7 @@ import com.teeko.enemyboxes.client.ui.screen.EnemyBoxesScreen;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
@@ -27,8 +29,14 @@ public final class EnemyBoxesClient implements ClientModInitializer {
         HudRenderCallback.EVENT.register((guiGraphics, deltaTracker) ->
                 EnemyBoxesHud.render(guiGraphics, deltaTracker.getGameTimeDeltaPartialTick(false)));
 
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) ->
+                BeachballMacro.stopIfRunning(client));
+
         ClientReceiveMessageEvents.GAME.register((message, overlay) -> {
-            if (!overlay) HideonleafShardTracker.onChatMessage(message);
+            if (!overlay) {
+                HideonleafShardTracker.onChatMessage(message);
+            }
+            BeachballMacro.onGameMessage(message, overlay);
         });
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
@@ -44,6 +52,10 @@ public final class EnemyBoxesClient implements ClientModInitializer {
                 toggleAutoHunt(client);
             }
 
+            while (EnemyBoxesKeyBindings.TOGGLE_BEACHBALL_KEY.consumeClick()) {
+                toggleBeachball(client);
+            }
+
             if (!EnemyBoxesKeyBindings.LOCK_ON_KEY.isDown()) {
                 LockOnController.clearLock();
             } else {
@@ -51,6 +63,7 @@ public final class EnemyBoxesClient implements ClientModInitializer {
             }
 
             HideonleafHunt.tick(client);
+            BeachballMacro.tick(client);
             LockOnController.tickAutoHuntUse(client);
 
             if (EnemyBoxesState.shardTrackerEnabled) {
@@ -86,6 +99,20 @@ public final class EnemyBoxesClient implements ClientModInitializer {
         if (client.player != null) {
             client.player.displayClientMessage(Component.literal(
                     "[EnemyBoxes] Auto Hunt: " + (EnemyBoxesState.autoHuntEnabled ? "ON" : "OFF")
+            ), false);
+        }
+    }
+
+    private static void toggleBeachball(Minecraft client) {
+        EnemyBoxesState.beachballMacroRunning = !EnemyBoxesState.beachballMacroRunning;
+        BeachballMacro.onRunningStateChanged(client, EnemyBoxesState.beachballMacroRunning);
+        notifyBeachballToggled(client);
+    }
+
+    private static void notifyBeachballToggled(Minecraft client) {
+        if (client.player != null) {
+            client.player.displayClientMessage(Component.literal(
+                    "[EnemyBoxes] Beachball Macro: " + (EnemyBoxesState.beachballMacroRunning ? "ON" : "OFF")
             ), false);
         }
     }

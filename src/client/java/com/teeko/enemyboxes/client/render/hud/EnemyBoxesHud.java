@@ -13,7 +13,9 @@ public final class EnemyBoxesHud {
 
         TargetingHudOverlay.render(graphics, client, tickDelta);
 
-        if ((EnemyBoxesState.autoHuntEnabled || EnemyBoxesState.shardTrackerEnabled) && client.level != null) {
+        if ((EnemyBoxesState.autoHuntEnabled
+                || EnemyBoxesState.shardTrackerEnabled
+                || EnemyBoxesState.beachballMacroRunning) && client.level != null) {
             HideonleafHudOverlay.render(graphics, client);
         }
 

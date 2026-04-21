@@ -1,6 +1,7 @@
 package com.teeko.enemyboxes.client.render.world;
 
 import com.teeko.enemyboxes.client.EnemyBoxesClient;
+import com.teeko.enemyboxes.client.feature.beachball.BeachballMacro;
 import com.teeko.enemyboxes.client.state.EnemyBoxesState;
 import com.mojang.blaze3d.buffers.GpuBuffer;
 import com.mojang.blaze3d.buffers.GpuBufferSlice;
@@ -33,6 +34,7 @@ import org.lwjgl.system.MemoryUtil;
 
 import java.util.OptionalDouble;
 import java.util.OptionalInt;
+import java.util.UUID;
 
 public final class EnemyBoxesRenderer {
 
@@ -65,6 +67,8 @@ public final class EnemyBoxesRenderer {
 
         capturedViewMatrix.set(viewMatrix);
         boolean anyDrawn = false;
+        UUID beachballRenderId = BeachballMacro.getRenderBallId(client);
+        boolean beachballRendered = false;
 
         // ── Regular ESP boxes ────────────────────────────────────────────────
         if (EnemyBoxesState.enabled && EnemyBoxesState.hasTarget()) {
@@ -96,12 +100,17 @@ public final class EnemyBoxesRenderer {
 
                 Matrix4f vertexMat = new Matrix4f();
 
+                boolean isBeachball = beachballRenderId != null && beachballRenderId.equals(entity.getUUID());
                 boolean isLocked = EnemyBoxesState.lockedTarget != null &&
                         EnemyBoxesState.lockedTarget.equals(entity.getUUID());
 
-                float r = isLocked ? 0f : 1f;
-                float g = isLocked ? 1f : 0f;
-                renderBox(vertexMat, buffer, localBox, r, g, 0f, 1f);
+                float r = isBeachball ? 0.10f : (isLocked ? 0f : 1f);
+                float g = isBeachball ? 0.95f : (isLocked ? 1f : 0f);
+                float boxBlue = isBeachball ? 1.00f : 0f;
+                renderBox(vertexMat, buffer, localBox, r, g, boxBlue, 1f);
+                if (isBeachball) {
+                    beachballRendered = true;
+                }
                 anyDrawn = true;
             }
         }
@@ -161,6 +170,38 @@ public final class EnemyBoxesRenderer {
                     renderBox(vertexMat, buffer, localBox, 0f, cyan, cyan, 1f);
                 }
                 anyDrawn = true;
+            }
+        }
+
+        if (EnemyBoxesState.beachballMacroRunning && beachballRenderId != null && !beachballRendered) {
+            for (Entity entity : client.level.entitiesForRendering()) {
+                if (!entity.getUUID().equals(beachballRenderId)) continue;
+
+                AABB worldBox = entity.getBoundingBox();
+                if (worldBox.maxX - worldBox.minX < 0.01
+                        && worldBox.maxY - worldBox.minY < 0.01
+                        && worldBox.maxZ - worldBox.minZ < 0.01) continue;
+
+                if (buffer == null) {
+                    buffer = new BufferBuilder(allocator, BOX_PIPELINE.getVertexFormatMode(), BOX_PIPELINE.getVertexFormat());
+                    verticesWritten = 0;
+                }
+
+                double lerpX = lerp(tickDelta, entity.xOld, entity.getX());
+                double lerpY = lerp(tickDelta, entity.yOld, entity.getY());
+                double lerpZ = lerp(tickDelta, entity.zOld, entity.getZ());
+                double shiftX = lerpX - entity.getX();
+                double shiftY = lerpY - entity.getY();
+                double shiftZ = lerpZ - entity.getZ();
+
+                AABB localBox = worldBox
+                        .move(shiftX, shiftY, shiftZ)
+                        .move(-camX, -camY, -camZ);
+
+                Matrix4f vertexMat = new Matrix4f();
+                renderBox(vertexMat, buffer, localBox, 0.10f, 0.95f, 1.00f, 1f);
+                anyDrawn = true;
+                break;
             }
         }
 
