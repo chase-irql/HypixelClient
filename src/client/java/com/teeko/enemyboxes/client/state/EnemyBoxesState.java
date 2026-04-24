@@ -12,6 +12,8 @@ import java.util.UUID;
 
 public final class EnemyBoxesState {
 
+    public static final String DEFAULT_ALERT_SERVER_URL = "https://bot.sky-craft.uk/events";
+
     // ESP
     public static boolean enabled       = true;
     public static boolean showFovCircle = true;
@@ -68,8 +70,18 @@ public final class EnemyBoxesState {
     public static UUID    huntTrackedBullet  = null;
     public static UUID    huntLockedBullet   = null;
 
+    // Beachball macro
+    public static boolean beachballMacroRunning  = false;
+    public static boolean beachballCrouchEnabled = true;
+    public static boolean beachballForcedStopAlertsEnabled = false;
+    public static boolean chatNameMentionAlertsEnabled = true;
+    public static boolean serverShutdownAlertsEnabled = true;
+    public static String  alertServerUrl = DEFAULT_ALERT_SERVER_URL;
+    public static String  alertServerSecret = "";
+    public static String  alertAuthToken = "";
+    public static String  alertAuthMinecraftUuid = "";
+
     // Targets — name -> enabled. Order preserved via LinkedHashMap.
-    public static boolean beachballMacroRunning = false;
 
     public static final Map<String, Boolean> targets = new LinkedHashMap<>();
     public static UUID lockedTarget = null;

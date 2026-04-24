@@ -3,6 +3,8 @@ package com.teeko.enemyboxes.client;
 import com.teeko.enemyboxes.client.config.EnemyBoxesConfig;
 import com.teeko.enemyboxes.client.debug.DebugDump;
 import com.teeko.enemyboxes.client.feature.beachball.BeachballMacro;
+import com.teeko.enemyboxes.client.feature.chat.ChatMentionAlerts;
+import com.teeko.enemyboxes.client.feature.chat.ServerShutdownAlerts;
 import com.teeko.enemyboxes.client.feature.hideonleaf.HideonleafHunt;
 import com.teeko.enemyboxes.client.feature.hideonleaf.HideonleafShardTracker;
 import com.teeko.enemyboxes.client.feature.lockon.LockOnController;
@@ -36,8 +38,13 @@ public final class EnemyBoxesClient implements ClientModInitializer {
             if (!overlay) {
                 HideonleafShardTracker.onChatMessage(message);
             }
+            ChatMentionAlerts.onGameMessage(Minecraft.getInstance(), message, overlay);
+            ServerShutdownAlerts.onGameMessage(Minecraft.getInstance(), message, overlay);
             BeachballMacro.onGameMessage(message, overlay);
         });
+
+        ClientReceiveMessageEvents.CHAT.register((message, signedMessage, sender, params, receptionTimestamp) ->
+                ChatMentionAlerts.onChatMessage(Minecraft.getInstance(), message, sender));
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             while (EnemyBoxesKeyBindings.OPEN_MENU_KEY.consumeClick()) {
@@ -64,6 +71,7 @@ public final class EnemyBoxesClient implements ClientModInitializer {
 
             HideonleafHunt.tick(client);
             BeachballMacro.tick(client);
+            ChatMentionAlerts.tick(client);
             LockOnController.tickAutoHuntUse(client);
 
             if (EnemyBoxesState.shardTrackerEnabled) {

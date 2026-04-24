@@ -1,6 +1,7 @@
 package com.teeko.enemyboxes.client.feature.beachball;
 
 import com.teeko.enemyboxes.client.EnemyBoxesClient;
+import com.teeko.enemyboxes.client.integration.BotEventClient;
 import com.teeko.enemyboxes.client.mixin.accessor.MinecraftAccessor;
 import com.teeko.enemyboxes.client.state.EnemyBoxesState;
 import net.minecraft.client.Minecraft;
@@ -10,6 +11,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Input;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.monster.Slime;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.component.CustomData;
 import net.minecraft.world.phys.AABB;
@@ -19,8 +21,10 @@ import net.minecraft.world.phys.Vec3;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -34,12 +38,15 @@ public final class BeachballMacro {
             Pattern.compile("\\b(?:bounces?|count(?:er)?)\\s*:\\s*(\\d+)\\b", Pattern.CASE_INSENSITIVE);
 
     private static final double MAX_LOCK_DISTANCE = 20.0;
+    private static final double NEARBY_PLAYER_STOP_DISTANCE = 5.0;
     private static final double TRACK_DEADZONE = 0.12;
     private static final double TRACK_RESUME_DISTANCE = 0.40;
     private static final double MOVE_AXIS_THRESHOLD = 0.05;
     private static final double START_REACHED_DISTANCE = 0.45;
     private static final long USE_RETRY_MS = 3500L;
+    private static final long USE_CONFIRM_TIMEOUT_MS = 1000L;
     private static final long HUD_COUNTER_STALE_MS = 1500L;
+    private static final long POST_ROUND_RESTART_DELAY_MS = 1000L;
     private static final int HUD_SCAN_TOP_PADDING = 160;
     private static final int HUD_SCAN_BOTTOM_PADDING = 8;
     private static final int MAX_RECENT_HUD_LINES = 8;
@@ -54,10 +61,17 @@ public final class BeachballMacro {
     private static BlockPos startBlock = null;
     private static UUID lockedBallId = null;
     private static Vec3 lastBallPos = null;
+    private static boolean waitingForUseConfirmation = false;
     private static boolean waitingForBallSpawn = false;
     private static boolean returningToStart = false;
+    private static boolean awaitingRoundResult = false;
+    private static boolean stopAfterCurrentRound = false;
     private static long nextUseAttemptMs = 0L;
+    private static long useConfirmationDeadlineMs = 0L;
+    private static long postRoundReadyMs = 0L;
     private static String status = "OFF";
+    private static String stopAfterCurrentRoundReason = "";
+    private static int pendingUseBeachballCount = -1;
 
     private static int bounceCount = 0;
     private static int lastChatResultCount = -1;
@@ -77,6 +91,7 @@ public final class BeachballMacro {
     private static String hudCounterText = "";
     private static final Deque<String> recentHudTexts = new ArrayDeque<>();
     private static final Deque<String> recentPacketTexts = new ArrayDeque<>();
+    private static final Set<UUID> preUseVisibleBallIds = new HashSet<>();
     private static boolean movementOwned = false;
     private static boolean desiredForward = false;
     private static boolean desiredBackward = false;
@@ -98,6 +113,10 @@ public final class BeachballMacro {
         onRunningStateChanged(client, false);
     }
 
+    public static boolean stopForChatCallout(Minecraft client, String reason) {
+        return stopMacro(client, reason, false);
+    }
+
     public static void onChatMessage(Component message) {
         if (message == null) return;
 
@@ -111,10 +130,31 @@ public final class BeachballMacro {
             lastChatResultCount = -1;
         }
 
-        waitingForBallSpawn = false;
-        returningToStart = true;
+        clearPendingUseState();
+        clearSpawnWaitState();
         clearLock();
         clearHudCounter();
+
+        if (awaitingRoundResult) {
+            awaitingRoundResult = false;
+
+            if (returningToStart) {
+                status = stopAfterCurrentRound ? "STOPPING_AFTER_RESULT" : "RESULT";
+                return;
+            }
+
+            if (stopAfterCurrentRound) {
+                stopMacroAfterCurrentRound(Minecraft.getInstance(), stopAfterCurrentRoundReason);
+                return;
+            }
+
+            postRoundReadyMs = System.currentTimeMillis() + POST_ROUND_RESTART_DELAY_MS;
+            status = "POST_ROUND_DELAY";
+            return;
+        }
+
+        returningToStart = true;
+        postRoundReadyMs = 0L;
         status = "RESULT";
     }
 
@@ -148,6 +188,12 @@ public final class BeachballMacro {
             return;
         }
 
+        Player nearbyPlayer = findNearbyPlayer(client);
+        if (nearbyPlayer != null) {
+            stopMacro(client, "player nearby: " + nearbyPlayer.getName().getString());
+            return;
+        }
+
         if (startBlock == null) {
             startBlock = BlockPos.containing(client.player.position());
         }
@@ -156,7 +202,7 @@ public final class BeachballMacro {
         long now = System.currentTimeMillis();
 
         if (returningToStart) {
-            waitingForBallSpawn = false;
+            clearSpawnWaitState();
             clearLock();
 
             if (moveTowardHorizontal(client, startCenter, true, START_REACHED_DISTANCE, START_REACHED_DISTANCE)) {
@@ -165,13 +211,46 @@ public final class BeachballMacro {
             }
 
             returningToStart = false;
-            status = "READY";
+
+            if (stopAfterCurrentRound && !awaitingRoundResult) {
+                stopMacroAfterCurrentRound(client, stopAfterCurrentRoundReason);
+                return;
+            }
+
+            if (awaitingRoundResult) {
+                releaseMovement(client);
+                postRoundReadyMs = 0L;
+                status = "WAITING_FOR_RESULT";
+                return;
+            }
+
+            postRoundReadyMs = now + POST_ROUND_RESTART_DELAY_MS;
+            releaseMovement(client);
+            status = "POST_ROUND_DELAY";
+            return;
+        }
+
+        if (waitingForUseConfirmation) {
+            if (hasPendingUseConsumedABall(client)) {
+                waitingForUseConfirmation = false;
+                useConfirmationDeadlineMs = 0L;
+                pendingUseBeachballCount = -1;
+                waitingForBallSpawn = true;
+            } else if (now < useConfirmationDeadlineMs) {
+                releaseMovement(client);
+                status = "CONFIRMING_USE";
+                return;
+            } else {
+                clearPendingUseState();
+            }
         }
 
         Candidate lockedTarget = resolveLockedTarget(client, startCenter, now);
         if (lockedTarget != null) {
             if (getActiveBounceCount(now) >= 40) {
                 returningToStart = true;
+                awaitingRoundResult = true;
+                postRoundReadyMs = 0L;
                 clearLock();
                 clearHudCounter();
                 releaseMovement(client);
@@ -187,7 +266,7 @@ public final class BeachballMacro {
         clearLock();
 
         if (waitingForBallSpawn) {
-            Candidate acquired = findBestTarget(client, startCenter);
+            Candidate acquired = findBestTarget(client, startCenter, true);
             if (acquired != null) {
                 acquireLock(acquired, now);
                 moveTowardHorizontal(client, acquired.ballPos(), false, TRACK_DEADZONE, TRACK_RESUME_DISTANCE);
@@ -201,14 +280,23 @@ public final class BeachballMacro {
                 return;
             }
 
-            waitingForBallSpawn = false;
+            clearSpawnWaitState();
         }
 
-        Candidate existing = findBestTarget(client, startCenter);
-        if (existing != null) {
-            acquireLock(existing, now);
-            moveTowardHorizontal(client, existing.ballPos(), false, TRACK_DEADZONE, TRACK_RESUME_DISTANCE);
-            status = "TRACKING";
+        if (awaitingRoundResult) {
+            releaseMovement(client);
+            status = "WAITING_FOR_RESULT";
+            return;
+        }
+
+        if (stopAfterCurrentRound) {
+            stopMacroAfterCurrentRound(client, stopAfterCurrentRoundReason);
+            return;
+        }
+
+        if (postRoundReadyMs > now) {
+            releaseMovement(client);
+            status = "POST_ROUND_DELAY";
             return;
         }
 
@@ -228,8 +316,12 @@ public final class BeachballMacro {
             return;
         }
 
+        captureVisibleBallIds(client);
+        pendingUseBeachballCount = countBeachballsInHotbar(client);
+        postRoundReadyMs = 0L;
         ((MinecraftAccessor) client).enemyboxes$invokeStartUseItem();
-        waitingForBallSpawn = true;
+        waitingForUseConfirmation = true;
+        useConfirmationDeadlineMs = now + USE_CONFIRM_TIMEOUT_MS;
         nextUseAttemptMs = now + USE_RETRY_MS;
         releaseMovement(client);
         status = "USING";
@@ -279,7 +371,11 @@ public final class BeachballMacro {
         }
 
         lines.add("Beachball count: live=" + bounceCount + " lastChat=" + lastChatResultCount
-                + " waiting=" + waitingForBallSpawn + " returning=" + returningToStart);
+                + " waitingUse=" + waitingForUseConfirmation
+                + " waitingBall=" + waitingForBallSpawn
+                + " pendingCount=" + pendingUseBeachballCount
+                + " returning=" + returningToStart
+                + " preUseBalls=" + preUseVisibleBallIds.size());
         lines.add("Beachball counter HUD: active=" + getActiveBounceCount(System.currentTimeMillis())
                 + " raw=" + hudCounterCount
                 + " ageMs=" + hudCounterAgeMs(System.currentTimeMillis())
@@ -300,7 +396,7 @@ public final class BeachballMacro {
         }
 
         Vec3 origin = startBlock != null ? Vec3.atBottomCenterOf(startBlock) : client.player.position();
-        Candidate best = findBestTarget(client, origin);
+        Candidate best = findBestTarget(client, origin, waitingForUseConfirmation || waitingForBallSpawn);
         if (best != null) {
             lines.add("Best Beachball candidate: pos=" + formatVec(best.ballPos())
                     + " playerDist=" + fmt(best.playerDistance())
@@ -344,10 +440,11 @@ public final class BeachballMacro {
     public static UUID getRenderBallId(Minecraft client) {
         if (!EnemyBoxesState.beachballMacroRunning) return null;
         if (lockedBallId != null) return lockedBallId;
+        if (!waitingForBallSpawn) return null;
         if (client == null || client.level == null || client.player == null) return null;
 
         Vec3 origin = startBlock != null ? Vec3.atBottomCenterOf(startBlock) : client.player.position();
-        Candidate best = findBestTarget(client, origin);
+        Candidate best = findBestTarget(client, origin, true);
         return best != null ? best.ballId() : null;
     }
 
@@ -377,6 +474,33 @@ public final class BeachballMacro {
         String raw = message.getString();
         rememberPacketText(source, raw);
         captureCounterText(raw, -1, -1, "packet/" + source);
+    }
+
+    public static void requestStopAfterCurrentRound(Minecraft client, String reason) {
+        if (!EnemyBoxesState.beachballMacroRunning) {
+            return;
+        }
+
+        String cleanReason = sanitizeReason(reason, "Server shutdown warning detected.");
+        if (stopAfterCurrentRound) {
+            stopAfterCurrentRoundReason = cleanReason;
+            return;
+        }
+
+        if (!hasRoundInProgress()) {
+            stopMacroAfterCurrentRound(client, cleanReason);
+            return;
+        }
+
+        stopAfterCurrentRound = true;
+        stopAfterCurrentRoundReason = cleanReason;
+
+        if (client != null && client.player != null) {
+            client.player.displayClientMessage(
+                    Component.literal("[EnemyBoxes] " + cleanReason + " Finishing the current beachball before stopping."),
+                    false
+            );
+        }
     }
 
     private static void captureCounterText(String rawText, int x, int y, String sourceLabel) {
@@ -417,6 +541,18 @@ public final class BeachballMacro {
         return true;
     }
 
+    private static Player findNearbyPlayer(Minecraft client) {
+        double maxDistanceSq = NEARBY_PLAYER_STOP_DISTANCE * NEARBY_PLAYER_STOP_DISTANCE;
+        for (Player other : client.level.players()) {
+            if (other == client.player || !other.isAlive() || other.isSpectator()) continue;
+            if (client.player.distanceToSqr(other.getX(), other.getY(), other.getZ()) <= maxDistanceSq) {
+                return other;
+            }
+        }
+
+        return null;
+    }
+
     private static Candidate resolveLockedTarget(Minecraft client, Vec3 startCenter, long now) {
         if (lockedBallId == null) return null;
 
@@ -436,7 +572,7 @@ public final class BeachballMacro {
         return null;
     }
 
-    private static Candidate findBestTarget(Minecraft client, Vec3 startCenter) {
+    private static Candidate findBestTarget(Minecraft client, Vec3 startCenter, boolean requireFreshBall) {
         Candidate best = null;
         double bestDistance = Double.MAX_VALUE;
 
@@ -446,6 +582,7 @@ public final class BeachballMacro {
             Candidate candidate = buildCandidate(client, slime, startCenter);
             if (candidate == null) continue;
             if (candidate.playerDistance() > MAX_LOCK_DISTANCE) continue;
+            if (requireFreshBall && preUseVisibleBallIds.contains(candidate.ballId())) continue;
 
             if (candidate.playerDistance() < bestDistance) {
                 best = candidate;
@@ -472,7 +609,9 @@ public final class BeachballMacro {
 
         lockedBallId = candidate.ballId();
         lastBallPos = candidate.ballPos();
-        waitingForBallSpawn = false;
+        postRoundReadyMs = 0L;
+        clearPendingUseState();
+        clearSpawnWaitState();
     }
 
     private static void updateLiveBallMetrics(Minecraft client, Slime slime, Vec3 startCenter, long now) {
@@ -536,8 +675,13 @@ public final class BeachballMacro {
         clearLock();
         bounceCount = 0;
         lastChatResultCount = -1;
-        waitingForBallSpawn = false;
+        clearPendingUseState();
+        clearSpawnWaitState();
         returningToStart = false;
+        awaitingRoundResult = false;
+        stopAfterCurrentRound = false;
+        postRoundReadyMs = 0L;
+        stopAfterCurrentRoundReason = "";
         nextUseAttemptMs = 0L;
         lastBounceMs = 0L;
         lockAcquiredMs = 0L;
@@ -608,7 +752,7 @@ public final class BeachballMacro {
     }
 
     public static Input getDesiredInput() {
-        boolean crouch = EnemyBoxesState.beachballMacroRunning && !returningToStart;
+        boolean crouch = EnemyBoxesState.beachballMacroRunning && !returningToStart && EnemyBoxesState.beachballCrouchEnabled;
         return new Input(
                 desiredForward,
                 desiredBackward,
@@ -625,18 +769,117 @@ public final class BeachballMacro {
         return positive ? 1.0F : -1.0F;
     }
 
-    private static void stopMacro(Minecraft client, String reason) {
+    private static boolean hasRoundInProgress() {
+        return lockedBallId != null
+                || waitingForUseConfirmation
+                || waitingForBallSpawn
+                || returningToStart
+                || awaitingRoundResult;
+    }
+
+    private static void stopMacroAfterCurrentRound(Minecraft client, String reason) {
         EnemyBoxesState.beachballMacroRunning = false;
         onRunningStateChanged(client, false);
-        if (client.player != null) {
+
+        if (client != null && client.player != null) {
+            client.player.displayClientMessage(
+                    Component.literal("[EnemyBoxes] Beachball macro stopped (" + sanitizeReason(reason, "Current round finished") + ")"),
+                    false
+            );
+        }
+    }
+
+    private static void stopMacro(Minecraft client, String reason) {
+        stopMacro(client, reason, true);
+    }
+
+    private static boolean stopMacro(Minecraft client, String reason, boolean sendAlert) {
+        if (!EnemyBoxesState.beachballMacroRunning) {
+            return false;
+        }
+
+        String playerName = client != null && client.player != null ? client.player.getName().getString() : "";
+        String dimensionId = client != null && client.level != null ? client.level.dimension().toString() : "";
+        int activeBounceCount = getActiveBounceCount(System.currentTimeMillis());
+        String stateAtStop = status;
+
+        EnemyBoxesState.beachballMacroRunning = false;
+        onRunningStateChanged(client, false);
+        if (client != null && client.player != null) {
             client.player.displayClientMessage(Component.literal("[EnemyBoxes] Beachball stopped (" + reason + ")"), false);
         }
+
+        if (!sendAlert) {
+            return true;
+        }
+
+        boolean alertQueued = BotEventClient.sendBeachballForcedStopEvent(
+                reason,
+                playerName,
+                dimensionId,
+                activeBounceCount,
+                stateAtStop
+        );
+        if (!alertQueued && client != null && client.player != null) {
+            client.player.displayClientMessage(
+                    Component.literal("[EnemyBoxes] Forced-stop alert not queued. Check bot alert settings."),
+                    false
+            );
+        }
+
+        return true;
+    }
+
+    private static String sanitizeReason(String value, String fallback) {
+        String clean = value == null ? "" : value.trim();
+        return clean.isEmpty() ? fallback : clean;
     }
 
     private static double horizontalDistance(Vec3 a, Vec3 b) {
         double dx = a.x - b.x;
         double dz = a.z - b.z;
         return Math.sqrt(dx * dx + dz * dz);
+    }
+
+    private static int countBeachballsInHotbar(Minecraft client) {
+        if (client == null || client.player == null) return 0;
+
+        int count = 0;
+        List<ItemStack> items = client.player.getInventory().getNonEquipmentItems();
+        for (int slot = 0; slot < 9 && slot < items.size(); slot++) {
+            ItemStack stack = items.get(slot);
+            if (isBeachballItem(stack)) {
+                count += stack.getCount();
+            }
+        }
+
+        return count;
+    }
+
+    private static void captureVisibleBallIds(Minecraft client) {
+        preUseVisibleBallIds.clear();
+        if (client == null || client.level == null) return;
+
+        for (Entity entity : client.level.entitiesForRendering()) {
+            if (entity instanceof Slime slime && slime.isAlive()) {
+                preUseVisibleBallIds.add(slime.getUUID());
+            }
+        }
+    }
+
+    private static boolean hasPendingUseConsumedABall(Minecraft client) {
+        return pendingUseBeachballCount >= 0 && countBeachballsInHotbar(client) < pendingUseBeachballCount;
+    }
+
+    private static void clearPendingUseState() {
+        waitingForUseConfirmation = false;
+        useConfirmationDeadlineMs = 0L;
+        pendingUseBeachballCount = -1;
+    }
+
+    private static void clearSpawnWaitState() {
+        waitingForBallSpawn = false;
+        preUseVisibleBallIds.clear();
     }
 
     private static double lastBallSampleYFor(UUID uuid, double fallbackY) {

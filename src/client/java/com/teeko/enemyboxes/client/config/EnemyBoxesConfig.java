@@ -6,8 +6,10 @@ import com.teeko.enemyboxes.client.state.EnemyBoxesState;
 import net.fabricmc.loader.api.FabricLoader;
 
 import java.io.*;
+import java.net.URI;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 
 public final class EnemyBoxesConfig {
@@ -68,6 +70,23 @@ public final class EnemyBoxesConfig {
         // Hideonleaf hunt & shard tracker
         boolean autoHuntEnabled      = false;
         boolean shardTrackerEnabled  = false;
+        // Beachball macro
+        boolean beachballCrouchEnabled = true;
+        Boolean beachballForcedStopAlertsEnabled = null;
+        Boolean chatNameMentionAlertsEnabled = null;
+        Boolean serverShutdownAlertsEnabled = null;
+        String  alertServerUrl = "";
+        String  alertServerSecret = "";
+        String  alertAuthToken = "";
+        String  alertAuthMinecraftUuid = "";
+        @Deprecated
+        Boolean beachballForcedStopWebhookEnabled = null;
+        @Deprecated
+        Boolean chatNameMentionWebhookEnabled = null;
+        @Deprecated
+        String  beachballForcedStopWebhookUrl = "";
+        @Deprecated
+        String  beachballForcedStopDiscordUserId = "";
         // Auto-clicker
         boolean autoClickerEnabled = false;
         int     acCpsMin           = 7;
@@ -106,8 +125,16 @@ public final class EnemyBoxesConfig {
         d.snaplinesOnlyClosest   = EnemyBoxesState.snaplinesOnlyClosest;
         d.snaplineThickness      = EnemyBoxesState.snaplineThickness;
         d.showBoxDistance        = EnemyBoxesState.showBoxDistance;
-        d.autoHuntEnabled        = EnemyBoxesState.autoHuntEnabled;
-        d.shardTrackerEnabled    = EnemyBoxesState.shardTrackerEnabled;
+        d.autoHuntEnabled          = EnemyBoxesState.autoHuntEnabled;
+        d.shardTrackerEnabled      = EnemyBoxesState.shardTrackerEnabled;
+        d.beachballCrouchEnabled   = EnemyBoxesState.beachballCrouchEnabled;
+        d.beachballForcedStopAlertsEnabled = EnemyBoxesState.beachballForcedStopAlertsEnabled;
+        d.chatNameMentionAlertsEnabled = EnemyBoxesState.chatNameMentionAlertsEnabled;
+        d.serverShutdownAlertsEnabled = EnemyBoxesState.serverShutdownAlertsEnabled;
+        d.alertServerUrl = EnemyBoxesState.alertServerUrl;
+        d.alertServerSecret = EnemyBoxesState.alertServerSecret;
+        d.alertAuthToken = EnemyBoxesState.alertAuthToken;
+        d.alertAuthMinecraftUuid = EnemyBoxesState.alertAuthMinecraftUuid;
         d.autoClickerEnabled     = EnemyBoxesState.autoClickerEnabled;
         d.acCpsMin               = EnemyBoxesState.acCpsMin;
         d.acCpsMode              = EnemyBoxesState.acCpsMode;
@@ -161,8 +188,10 @@ public final class EnemyBoxesConfig {
             EnemyBoxesState.snaplinesOnlyClosest   = d.snaplinesOnlyClosest;
             EnemyBoxesState.snaplineThickness      = d.snaplineThickness;
             EnemyBoxesState.showBoxDistance        = d.showBoxDistance;
-            EnemyBoxesState.autoHuntEnabled        = d.autoHuntEnabled;
-            EnemyBoxesState.shardTrackerEnabled    = d.shardTrackerEnabled;
+            EnemyBoxesState.autoHuntEnabled          = d.autoHuntEnabled;
+            EnemyBoxesState.shardTrackerEnabled      = d.shardTrackerEnabled;
+            EnemyBoxesState.beachballCrouchEnabled   = d.beachballCrouchEnabled;
+            applyAlertSettings(d);
             EnemyBoxesState.beachballMacroRunning  = false;
             EnemyBoxesState.autoClickerEnabled     = d.autoClickerEnabled;
             EnemyBoxesState.acCpsMin               = d.acCpsMin;
@@ -181,5 +210,98 @@ public final class EnemyBoxesConfig {
         } catch (IOException e) {
             e.printStackTrace();
         }
+    }
+
+    public static void reloadAlertSettings() {
+        File file = CONFIG_PATH.toFile();
+        if (!file.exists()) return;
+
+        try (Reader r = new FileReader(file)) {
+            Data d = GSON.fromJson(r, Data.class);
+            if (d == null) return;
+
+            applyAlertSettings(d);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static void applyAlertSettings(Data d) {
+        EnemyBoxesState.beachballForcedStopAlertsEnabled = resolveBoolean(
+                d.beachballForcedStopAlertsEnabled,
+                d.beachballForcedStopWebhookEnabled,
+                false
+        );
+        EnemyBoxesState.chatNameMentionAlertsEnabled = resolveBoolean(
+                d.chatNameMentionAlertsEnabled,
+                d.chatNameMentionWebhookEnabled,
+                true
+        );
+        EnemyBoxesState.serverShutdownAlertsEnabled = resolveBoolean(
+                d.serverShutdownAlertsEnabled,
+                null,
+                true
+        );
+        EnemyBoxesState.alertServerUrl = resolveAlertServerUrl(d);
+        EnemyBoxesState.alertServerSecret = sanitize(d.alertServerSecret);
+        EnemyBoxesState.alertAuthToken = sanitize(d.alertAuthToken);
+        EnemyBoxesState.alertAuthMinecraftUuid = sanitize(d.alertAuthMinecraftUuid);
+    }
+
+    private static boolean resolveBoolean(Boolean current, Boolean legacy, boolean fallback) {
+        if (current != null) return current;
+        if (legacy != null) return legacy;
+        return fallback;
+    }
+
+    private static String resolveAlertServerUrl(Data d) {
+        String current = normalizeAlertServerUrl(d.alertServerUrl);
+        if (!current.isEmpty()) {
+            return current;
+        }
+
+        String legacy = sanitize(d.beachballForcedStopWebhookUrl);
+        String legacyLower = legacy.toLowerCase(Locale.ROOT);
+        if (legacyLower.contains("discord.com/api/webhooks") || legacyLower.contains("discordapp.com/api/webhooks")) {
+            return EnemyBoxesState.DEFAULT_ALERT_SERVER_URL;
+        }
+
+        String normalizedLegacy = normalizeAlertServerUrl(legacy);
+        return normalizedLegacy.isEmpty()
+                ? EnemyBoxesState.DEFAULT_ALERT_SERVER_URL
+                : normalizedLegacy;
+    }
+
+    private static String normalizeAlertServerUrl(String value) {
+        String clean = sanitize(value);
+        if (clean.isEmpty()) {
+            return "";
+        }
+
+        String lower = clean.toLowerCase(Locale.ROOT);
+        if (lower.endsWith("/webhook")) {
+            return clean.substring(0, clean.length() - "/webhook".length()) + "/events";
+        }
+
+        if (lower.endsWith("/events")) {
+            return clean;
+        }
+
+        try {
+            URI uri = URI.create(clean);
+            String path = uri.getPath();
+
+            if (path == null || path.isBlank() || "/".equals(path)) {
+                return clean.endsWith("/") ? clean + "events" : clean + "/events";
+            }
+        } catch (IllegalArgumentException ignored) {
+            return clean;
+        }
+
+        return clean;
+    }
+
+    private static String sanitize(String value) {
+        return value == null ? "" : value.trim();
     }
 }

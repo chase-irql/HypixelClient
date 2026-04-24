@@ -3,6 +3,7 @@ package com.teeko.enemyboxes.client.ui.screen;
 import com.teeko.enemyboxes.client.combat.AutoClicker;
 import com.teeko.enemyboxes.client.config.EnemyBoxesConfig;
 import com.teeko.enemyboxes.client.feature.hideonleaf.HideonleafShardTracker;
+import com.teeko.enemyboxes.client.integration.BotEventClient;
 import com.teeko.enemyboxes.client.state.EnemyBoxesState;
 import com.teeko.enemyboxes.client.ui.widget.TripleSlider;
 import net.minecraft.client.Minecraft;
@@ -22,7 +23,7 @@ public final class EnemyBoxesScreen extends Screen {
 
     private final Screen parent;
 
-    private enum Tab { ESP, AIMBOT, COMBAT, TARGETS, HIDEONLEAF }
+    private enum Tab { ESP, AIMBOT, COMBAT, TARGETS, HIDEONLEAF, BEACHBALL }
     private Tab activeTab = Tab.ESP;
 
     private EditBox addBox;
@@ -81,6 +82,7 @@ public final class EnemyBoxesScreen extends Screen {
             case COMBAT     -> buildCombatTab(left, contentTop);
             case TARGETS    -> buildTargetsTab(left, contentTop);
             case HIDEONLEAF -> buildHideonleafTab(left, contentTop);
+            case BEACHBALL  -> buildBeachballTab(left, contentTop);
         }
 
         // ---- Close ----------------------------------------------------------
@@ -410,6 +412,84 @@ public final class EnemyBoxesScreen extends Screen {
     }
 
     // -------------------------------------------------------------------------
+    // Beachball tab
+    // -------------------------------------------------------------------------
+
+    private void buildBeachballTab(int left, int top) {
+        this.addRenderableWidget(Button.builder(
+                Component.literal(EnemyBoxesState.beachballForcedStopAlertsEnabled ? "Stop Alerts: ON" : "Stop Alerts: OFF"),
+                btn -> {
+                    EnemyBoxesState.beachballForcedStopAlertsEnabled = !EnemyBoxesState.beachballForcedStopAlertsEnabled;
+                    btn.setMessage(Component.literal(EnemyBoxesState.beachballForcedStopAlertsEnabled
+                            ? "Stop Alerts: ON"
+                            : "Stop Alerts: OFF"));
+                }
+        ).bounds(left, top, PANEL_W, BTN_H).build());
+        top += BTN_H + MARGIN;
+
+        this.addRenderableWidget(Button.builder(
+                Component.literal(EnemyBoxesState.chatNameMentionAlertsEnabled ? "Name Mention Alerts: ON" : "Name Mention Alerts: OFF"),
+                btn -> {
+                    EnemyBoxesState.chatNameMentionAlertsEnabled = !EnemyBoxesState.chatNameMentionAlertsEnabled;
+                    btn.setMessage(Component.literal(EnemyBoxesState.chatNameMentionAlertsEnabled
+                            ? "Name Mention Alerts: ON"
+                            : "Name Mention Alerts: OFF"));
+                }
+        ).bounds(left, top, PANEL_W, BTN_H).build());
+        top += BTN_H + MARGIN;
+
+        this.addRenderableWidget(Button.builder(
+                Component.literal(EnemyBoxesState.serverShutdownAlertsEnabled ? "Shutdown Ping: ON" : "Shutdown Ping: OFF"),
+                btn -> {
+                    EnemyBoxesState.serverShutdownAlertsEnabled = !EnemyBoxesState.serverShutdownAlertsEnabled;
+                    btn.setMessage(Component.literal(EnemyBoxesState.serverShutdownAlertsEnabled
+                            ? "Shutdown Ping: ON"
+                            : "Shutdown Ping: OFF"));
+                }
+        ).bounds(left, top, PANEL_W, BTN_H).build());
+        top += BTN_H + MARGIN;
+
+        this.addRenderableWidget(Button.builder(
+                Component.literal(EnemyBoxesState.beachballCrouchEnabled ? "Crouch: ON" : "Crouch: OFF"),
+                btn -> {
+                    EnemyBoxesState.beachballCrouchEnabled = !EnemyBoxesState.beachballCrouchEnabled;
+                    btn.setMessage(Component.literal(EnemyBoxesState.beachballCrouchEnabled ? "Crouch: ON" : "Crouch: OFF"));
+                }
+        ).bounds(left, top, PANEL_W, BTN_H).build());
+        top += BTN_H + MARGIN;
+
+        this.addRenderableWidget(Button.builder(
+                Component.literal("Send Test Alert"),
+                btn -> {
+                    EnemyBoxesState.beachballForcedStopAlertsEnabled = true;
+                    EnemyBoxesConfig.save();
+
+                    String playerName = this.minecraft != null && this.minecraft.player != null
+                            ? this.minecraft.player.getName().getString()
+                            : "";
+                    String dimensionId = this.minecraft != null && this.minecraft.level != null
+                            ? this.minecraft.level.dimension().toString()
+                            : "";
+                    boolean queued = BotEventClient.sendBeachballForcedStopEvent(
+                            "Manual test alert triggered from EnemyBoxes settings.",
+                            playerName,
+                            dimensionId,
+                            0,
+                            "TEST"
+                    );
+                    if (this.minecraft != null && this.minecraft.player != null) {
+                        this.minecraft.player.displayClientMessage(
+                                Component.literal(queued
+                                        ? "[EnemyBoxes] Test alert queued."
+                                        : "[EnemyBoxes] Test alert not sent."),
+                                false
+                        );
+                    }
+                }
+        ).bounds(left, top, PANEL_W, BTN_H).build());
+    }
+
+    // -------------------------------------------------------------------------
     // Smoothing TripleSlider — shows decimal labels instead of " ms"
     // -------------------------------------------------------------------------
 
@@ -448,6 +528,7 @@ public final class EnemyBoxesScreen extends Screen {
             case COMBAT -> "Combat";
             case TARGETS -> "Targets";
             case HIDEONLEAF -> "HOL";
+            case BEACHBALL -> "Beachball";
         };
         return activeTab == tab ? "§e§l" + name : name;
     }
