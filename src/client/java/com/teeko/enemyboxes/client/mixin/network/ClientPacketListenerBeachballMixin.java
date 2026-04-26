@@ -1,6 +1,7 @@
 package com.teeko.enemyboxes.client.mixin.network;
 
 import com.teeko.enemyboxes.client.feature.beachball.BeachballMacro;
+import com.teeko.enemyboxes.client.feature.chat.ChatMentionAlerts;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.network.protocol.game.ClientboundRespawnPacket;
@@ -34,6 +35,7 @@ public abstract class ClientPacketListenerBeachballMixin {
             ClientboundSystemChatPacket packet,
             CallbackInfo ci
     ) {
+        ChatMentionAlerts.onGameMessage(Minecraft.getInstance(), packet.content(), packet.overlay());
         BeachballMacro.onPacketTextReceived(packet.overlay() ? "system_overlay" : "system_chat", packet.content());
     }
 

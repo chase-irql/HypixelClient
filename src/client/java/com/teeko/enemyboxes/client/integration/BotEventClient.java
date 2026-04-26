@@ -183,6 +183,9 @@ public final class BotEventClient {
                         + " request failed: " + response.statusCode() + " " + response.body());
                 return;
             }
+
+            System.out.println("[EnemyBoxes] Bot event #" + eventId
+                    + " delivered successfully as [" + type + "] with status " + response.statusCode() + ".");
         } catch (HttpTimeoutException error) {
             System.err.println("[EnemyBoxes] Bot event #" + eventId
                     + " request timed out after " + HTTP_REQUEST_TIMEOUT.toSeconds() + "s.");

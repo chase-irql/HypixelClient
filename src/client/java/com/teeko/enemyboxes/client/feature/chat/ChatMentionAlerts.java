@@ -16,9 +16,11 @@ public final class ChatMentionAlerts {
     private static final Pattern ANGLE_BRACKET_CHAT_PATTERN =
             Pattern.compile("^<([A-Za-z0-9_]{1,16})>\\s+(.+)$");
     private static final Pattern COLON_CHAT_PATTERN =
-            Pattern.compile("^(?:\\[[^\\]]+\\]\\s*)*([A-Za-z0-9_]{1,16})\\s*:\\s+(.+)$");
+            Pattern.compile("^(.+?)\\s*:\\s+(.+)$");
     private static final Pattern ARROW_CHAT_PATTERN =
-            Pattern.compile("^(?:\\[[^\\]]+\\]\\s*)*([A-Za-z0-9_]{1,16})\\s+>\\s+(.+)$");
+            Pattern.compile("^(.+?)\\s+>\\s+(.+)$");
+    private static final Pattern USERNAME_TOKEN_PATTERN =
+            Pattern.compile("[A-Za-z0-9_]{1,16}");
     private static final Pattern MACRO_KEYWORD_PATTERN =
             Pattern.compile("(?i)\\bmacro(?:ing)?\\b");
     private static final Pattern COMMAND_FAILURE_PATTERN =
@@ -43,11 +45,11 @@ public final class ChatMentionAlerts {
         if (localUsername.isEmpty() || senderName.isEmpty()) return;
         if (senderName.equalsIgnoreCase(localUsername)) return;
 
-        String rawMessage = sanitize(message.getString());
+        String rawMessage = sanitize(stripFormatting(message.getString()));
         if (rawMessage.isEmpty()) return;
 
         String chatBody = stripSenderPrefix(rawMessage, senderName);
-        handleDetectedPlayerMessage(client, localUsername, senderName, chatBody);
+        handleDetectedPlayerMessage(client, localUsername, senderName, chatBody, "chat");
     }
 
     public static void onGameMessage(Minecraft client, Component message, boolean overlay) {
@@ -80,7 +82,8 @@ public final class ChatMentionAlerts {
                 client,
                 sanitize(client.player.getName().getString()),
                 parsedChat.senderName(),
-                parsedChat.message()
+                parsedChat.message(),
+                "system"
         );
     }
 
@@ -113,7 +116,8 @@ public final class ChatMentionAlerts {
             Minecraft client,
             String localUsername,
             String senderName,
-            String chatBody
+            String chatBody,
+            String source
     ) {
         String cleanLocalUsername = sanitize(localUsername);
         String cleanSenderName = sanitize(senderName);
@@ -123,15 +127,27 @@ public final class ChatMentionAlerts {
             return;
         }
 
+        boolean containsLocalUsername = containsLocalUsername(cleanChatBody, cleanLocalUsername);
+        if (containsLocalUsername) {
+            debugLog(
+                    "Candidate from " + source
+                            + ": sender=[" + cleanSenderName + "] message=[" + cleanChatBody + "]"
+            );
+        }
+
         if (cleanSenderName.equalsIgnoreCase(cleanLocalUsername)) {
+            if (containsLocalUsername) {
+                debugLog("Skipping candidate because sender matches local username.");
+            }
             return;
         }
 
-        if (!containsLocalUsername(cleanChatBody, cleanLocalUsername)) {
+        if (!containsLocalUsername) {
             return;
         }
 
         if (isDuplicateForward(cleanSenderName, cleanChatBody)) {
+            debugLog("Skipping candidate as duplicate within dedupe window.");
             return;
         }
 
@@ -140,15 +156,21 @@ public final class ChatMentionAlerts {
         }
 
         if (!EnemyBoxesState.chatNameMentionAlertsEnabled) {
+            debugLog("Mention alert matched but Name Mention Alerts are disabled.");
             return;
         }
 
         DirectChatMessage forwardedMessage = extractForwardedMessage(cleanChatBody, cleanLocalUsername);
-        BotEventClient.sendChatMentionEvent(
+        boolean queued = BotEventClient.sendChatMentionEvent(
                 cleanLocalUsername,
                 cleanSenderName,
                 forwardedMessage.message(),
                 forwardedMessage.directMessage()
+        );
+        debugLog(
+                "Forward result: queued=" + queued
+                        + " directMessage=" + forwardedMessage.directMessage()
+                        + " forwardedBody=[" + forwardedMessage.message() + "]"
         );
     }
 
@@ -176,7 +198,7 @@ public final class ChatMentionAlerts {
     }
 
     private static ParsedPlayerChat parsePlayerChatMessage(String rawMessage) {
-        String cleanMessage = sanitize(rawMessage);
+        String cleanMessage = sanitize(stripFormatting(rawMessage));
         if (cleanMessage.isEmpty()) {
             return null;
         }
@@ -186,12 +208,24 @@ public final class ChatMentionAlerts {
             return parsed;
         }
 
-        parsed = matchPlayerChatPattern(COLON_CHAT_PATTERN, cleanMessage);
+        parsed = matchDelimitedPlayerChat(COLON_CHAT_PATTERN, cleanMessage);
         if (parsed != null) {
+            debugLog(
+                    "Parsed colon chat: sender=[" + parsed.senderName()
+                            + "] message=[" + parsed.message() + "] raw=[" + cleanMessage + "]"
+            );
             return parsed;
         }
 
-        return matchPlayerChatPattern(ARROW_CHAT_PATTERN, cleanMessage);
+        parsed = matchDelimitedPlayerChat(ARROW_CHAT_PATTERN, cleanMessage);
+        if (parsed != null) {
+            debugLog(
+                    "Parsed arrow chat: sender=[" + parsed.senderName()
+                            + "] message=[" + parsed.message() + "] raw=[" + cleanMessage + "]"
+            );
+        }
+
+        return parsed;
     }
 
     private static ParsedPlayerChat matchPlayerChatPattern(Pattern pattern, String message) {
@@ -202,6 +236,22 @@ public final class ChatMentionAlerts {
 
         String senderName = sanitize(matcher.group(1));
         String chatBody = sanitize(matcher.group(2));
+        if (senderName.isEmpty() || chatBody.isEmpty()) {
+            return null;
+        }
+
+        return new ParsedPlayerChat(senderName, chatBody);
+    }
+
+    private static ParsedPlayerChat matchDelimitedPlayerChat(Pattern pattern, String message) {
+        Matcher matcher = pattern.matcher(message);
+        if (!matcher.matches()) {
+            return null;
+        }
+
+        String senderPart = sanitize(matcher.group(1));
+        String chatBody = sanitize(matcher.group(2));
+        String senderName = extractSenderName(senderPart);
         if (senderName.isEmpty() || chatBody.isEmpty()) {
             return null;
         }
@@ -268,6 +318,11 @@ public final class ChatMentionAlerts {
     }
 
     private static String stripSenderPrefix(String rawMessage, String senderName) {
+        ParsedPlayerChat parsed = parsePlayerChatMessage(rawMessage);
+        if (parsed != null && parsed.senderName().equalsIgnoreCase(senderName)) {
+            return parsed.message();
+        }
+
         String[] prefixes = {
                 "<" + senderName + "> ",
                 senderName + ": ",
@@ -281,6 +336,21 @@ public final class ChatMentionAlerts {
         }
 
         return rawMessage;
+    }
+
+    private static String extractSenderName(String senderPart) {
+        String cleanSenderPart = sanitize(senderPart);
+        if (cleanSenderPart.isEmpty()) {
+            return "";
+        }
+
+        Matcher matcher = USERNAME_TOKEN_PATTERN.matcher(cleanSenderPart);
+        String senderName = "";
+        while (matcher.find()) {
+            senderName = matcher.group();
+        }
+
+        return senderName;
     }
 
     private static String stripFormatting(String text) {
@@ -299,6 +369,10 @@ public final class ChatMentionAlerts {
 
     private static String sanitize(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private static void debugLog(String message) {
+        System.out.println("[EnemyBoxes] Mention debug: " + message);
     }
 
     private record DirectChatMessage(String message, boolean directMessage) {}
