@@ -3,6 +3,7 @@ package com.teeko.enemyboxes.client;
 import com.teeko.enemyboxes.client.config.EnemyBoxesConfig;
 import com.teeko.enemyboxes.client.debug.DebugDump;
 import com.teeko.enemyboxes.client.feature.beachball.BeachballMacro;
+import com.teeko.enemyboxes.client.feature.fishing.AutoFisher;
 import com.teeko.enemyboxes.client.feature.chat.ChatMentionAlerts;
 import com.teeko.enemyboxes.client.feature.chat.ServerShutdownAlerts;
 import com.teeko.enemyboxes.client.feature.hideonleaf.HideonleafHunt;
@@ -63,6 +64,10 @@ public final class EnemyBoxesClient implements ClientModInitializer {
                 toggleBeachball(client);
             }
 
+            while (EnemyBoxesKeyBindings.TOGGLE_AUTOFISH_KEY.consumeClick()) {
+                toggleAutoFisher(client);
+            }
+
             if (!EnemyBoxesKeyBindings.LOCK_ON_KEY.isDown()) {
                 LockOnController.clearLock();
             } else {
@@ -71,6 +76,7 @@ public final class EnemyBoxesClient implements ClientModInitializer {
 
             HideonleafHunt.tick(client);
             BeachballMacro.tick(client);
+            AutoFisher.tick(client);
             ChatMentionAlerts.tick(client);
             LockOnController.tickAutoHuntUse(client);
 
@@ -121,6 +127,17 @@ public final class EnemyBoxesClient implements ClientModInitializer {
         if (client.player != null) {
             client.player.displayClientMessage(Component.literal(
                     "[EnemyBoxes] Beachball Macro: " + (EnemyBoxesState.beachballMacroRunning ? "ON" : "OFF")
+            ), false);
+        }
+    }
+
+    private static void toggleAutoFisher(Minecraft client) {
+        EnemyBoxesState.autoFisherEnabled = !EnemyBoxesState.autoFisherEnabled;
+        if (!EnemyBoxesState.autoFisherEnabled) AutoFisher.reset();
+        EnemyBoxesConfig.save();
+        if (client.player != null) {
+            client.player.displayClientMessage(Component.literal(
+                    "[EnemyBoxes] Auto Fish: " + (EnemyBoxesState.autoFisherEnabled ? "ON" : "OFF")
             ), false);
         }
     }

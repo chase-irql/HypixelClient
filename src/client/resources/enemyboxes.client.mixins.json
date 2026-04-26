@@ -5,6 +5,7 @@
 	"compatibilityLevel": "JAVA_21",
 	"client": [
 		"network.ClientPacketListenerBeachballMixin",
+		"network.ClientPacketListenerFishingMixin",
 		"render.LevelRendererMixin",
 		"render.GameRendererMixin",
 		"render.GuiGraphicsBeachballMixin",

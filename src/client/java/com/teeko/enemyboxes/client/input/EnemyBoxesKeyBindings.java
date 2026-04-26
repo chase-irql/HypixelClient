@@ -37,6 +37,11 @@ public final class EnemyBoxesKeyBindings {
             GLFW.GLFW_KEY_J
     );
 
+    public static final KeyMapping TOGGLE_AUTOFISH_KEY = register(
+            "key.enemyboxes.toggle_autofish",
+            GLFW.GLFW_KEY_K
+    );
+
     private EnemyBoxesKeyBindings() {}
 
     public static void init() {

@@ -57,6 +57,9 @@ public final class EnemyBoxesState {
     // Hideonleaf shard tracker
     public static boolean shardTrackerEnabled = false;
 
+    // Auto-fisher
+    public static boolean autoFisherEnabled = false;
+
     // Auto-clicker
     public static boolean autoClickerEnabled = false;
     public static int     acCpsMin           = 7;

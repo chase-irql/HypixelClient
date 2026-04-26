@@ -1,6 +1,8 @@
 package com.teeko.enemyboxes.client.ui.screen;
 
 import com.teeko.enemyboxes.client.combat.AutoClicker;
+import com.teeko.enemyboxes.client.feature.fishing.AutoFisher;
+import com.teeko.enemyboxes.client.feature.fishing.PacketLogger;
 import com.teeko.enemyboxes.client.config.EnemyBoxesConfig;
 import com.teeko.enemyboxes.client.feature.hideonleaf.HideonleafShardTracker;
 import com.teeko.enemyboxes.client.integration.BotEventClient;
@@ -23,7 +25,7 @@ public final class EnemyBoxesScreen extends Screen {
 
     private final Screen parent;
 
-    private enum Tab { ESP, AIMBOT, COMBAT, TARGETS, HIDEONLEAF, BEACHBALL }
+    private enum Tab { ESP, AIMBOT, COMBAT, TARGETS, HIDEONLEAF, BEACHBALL, FISHING }
     private Tab activeTab = Tab.ESP;
 
     private EditBox addBox;
@@ -83,6 +85,7 @@ public final class EnemyBoxesScreen extends Screen {
             case TARGETS    -> buildTargetsTab(left, contentTop);
             case HIDEONLEAF -> buildHideonleafTab(left, contentTop);
             case BEACHBALL  -> buildBeachballTab(left, contentTop);
+            case FISHING    -> buildFishingTab(left, contentTop);
         }
 
         // ---- Close ----------------------------------------------------------
@@ -490,6 +493,30 @@ public final class EnemyBoxesScreen extends Screen {
     }
 
     // -------------------------------------------------------------------------
+    // Fishing tab
+    // -------------------------------------------------------------------------
+
+    private void buildFishingTab(int left, int top) {
+        this.addRenderableWidget(Button.builder(
+                Component.literal(EnemyBoxesState.autoFisherEnabled ? "Auto Fish: ON" : "Auto Fish: OFF"),
+                btn -> {
+                    EnemyBoxesState.autoFisherEnabled = !EnemyBoxesState.autoFisherEnabled;
+                    if (!EnemyBoxesState.autoFisherEnabled) AutoFisher.reset();
+                    btn.setMessage(Component.literal(EnemyBoxesState.autoFisherEnabled ? "Auto Fish: ON" : "Auto Fish: OFF"));
+                }
+        ).bounds(left, top, PANEL_W, BTN_H).build());
+        top += BTN_H + MARGIN;
+
+        this.addRenderableWidget(Button.builder(
+                Component.literal(PacketLogger.enabled ? "Packet Log: ON" : "Packet Log: OFF"),
+                btn -> {
+                    PacketLogger.enabled = !PacketLogger.enabled;
+                    btn.setMessage(Component.literal(PacketLogger.enabled ? "Packet Log: ON" : "Packet Log: OFF"));
+                }
+        ).bounds(left, top, PANEL_W, BTN_H).build());
+    }
+
+    // -------------------------------------------------------------------------
     // Smoothing TripleSlider — shows decimal labels instead of " ms"
     // -------------------------------------------------------------------------
 
@@ -528,7 +555,8 @@ public final class EnemyBoxesScreen extends Screen {
             case COMBAT -> "Combat";
             case TARGETS -> "Targets";
             case HIDEONLEAF -> "HOL";
-            case BEACHBALL -> "Beachball";
+            case BEACHBALL -> "Ball";
+            case FISHING   -> "Fish";
         };
         return activeTab == tab ? "§e§l" + name : name;
     }

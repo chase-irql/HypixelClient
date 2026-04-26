@@ -87,6 +87,8 @@ public final class EnemyBoxesConfig {
         String  beachballForcedStopWebhookUrl = "";
         @Deprecated
         String  beachballForcedStopDiscordUserId = "";
+        // Auto-fisher
+        boolean autoFisherEnabled = false;
         // Auto-clicker
         boolean autoClickerEnabled = false;
         int     acCpsMin           = 7;
@@ -135,6 +137,7 @@ public final class EnemyBoxesConfig {
         d.alertServerSecret = EnemyBoxesState.alertServerSecret;
         d.alertAuthToken = EnemyBoxesState.alertAuthToken;
         d.alertAuthMinecraftUuid = EnemyBoxesState.alertAuthMinecraftUuid;
+        d.autoFisherEnabled      = EnemyBoxesState.autoFisherEnabled;
         d.autoClickerEnabled     = EnemyBoxesState.autoClickerEnabled;
         d.acCpsMin               = EnemyBoxesState.acCpsMin;
         d.acCpsMode              = EnemyBoxesState.acCpsMode;
@@ -193,6 +196,7 @@ public final class EnemyBoxesConfig {
             EnemyBoxesState.beachballCrouchEnabled   = d.beachballCrouchEnabled;
             applyAlertSettings(d);
             EnemyBoxesState.beachballMacroRunning  = false;
+            EnemyBoxesState.autoFisherEnabled      = d.autoFisherEnabled;
             EnemyBoxesState.autoClickerEnabled     = d.autoClickerEnabled;
             EnemyBoxesState.acCpsMin               = d.acCpsMin;
             EnemyBoxesState.acCpsMode              = d.acCpsMode;
