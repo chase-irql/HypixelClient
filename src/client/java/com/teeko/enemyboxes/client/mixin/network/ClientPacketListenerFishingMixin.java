@@ -1,9 +1,11 @@
 package com.teeko.enemyboxes.client.mixin.network;
 
+import com.teeko.enemyboxes.client.feature.fishing.AutoFisher;
 import com.teeko.enemyboxes.client.feature.fishing.PacketLogger;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.network.protocol.game.ClientboundEntityEventPacket;
+import net.minecraft.network.protocol.game.ClientboundRespawnPacket;
 import net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket;
 import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket;
 import net.minecraft.network.protocol.game.ClientboundSoundPacket;
@@ -24,6 +26,14 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 // @Mixin(ClientCommonPacketListenerImpl.class) targeting that method.
 @Mixin(ClientPacketListener.class)
 public abstract class ClientPacketListenerFishingMixin {
+
+    // Stop the auto-fisher on any respawn packet — this covers dimension changes,
+    // server-side teleports that reload the world, etc. Mirrors how BeachballMacro
+    // handles world changes via ClientPacketListenerBeachballMixin.
+    @Inject(method = "handleRespawn", at = @At("HEAD"))
+    private void enemyboxes$stopFishingOnRespawn(ClientboundRespawnPacket packet, CallbackInfo ci) {
+        AutoFisher.forceStop(Minecraft.getInstance(), "World change detected.");
+    }
 
     // Entity status events — vanilla fishing uses event id 31 on the FishingHook entity.
     // Custom servers may use different event ids.

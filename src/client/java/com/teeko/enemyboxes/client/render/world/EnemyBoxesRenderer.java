@@ -2,7 +2,10 @@ package com.teeko.enemyboxes.client.render.world;
 
 import com.teeko.enemyboxes.client.EnemyBoxesClient;
 import com.teeko.enemyboxes.client.feature.beachball.BeachballMacro;
+import com.teeko.enemyboxes.client.feature.fishing.AutoFisher;
+import com.teeko.enemyboxes.client.feature.fishing.FishingCombat;
 import com.teeko.enemyboxes.client.state.EnemyBoxesState;
+import net.minecraft.core.BlockPos;
 import com.mojang.blaze3d.buffers.GpuBuffer;
 import com.mojang.blaze3d.buffers.GpuBufferSlice;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
@@ -203,6 +206,47 @@ public final class EnemyBoxesRenderer {
                 anyDrawn = true;
                 break;
             }
+        }
+
+        // ── Fish combat target (orange) ──────────────────────────────────────
+        if (FishingCombat.isAimActive() && FishingCombat.getCreatureId() != null) {
+            for (Entity entity : client.level.entitiesForRendering()) {
+                if (!entity.getUUID().equals(FishingCombat.getCreatureId())) continue;
+
+                AABB worldBox = entity.getBoundingBox();
+                if (worldBox.maxX - worldBox.minX < 0.01
+                        && worldBox.maxY - worldBox.minY < 0.01
+                        && worldBox.maxZ - worldBox.minZ < 0.01) break;
+
+                if (buffer == null) {
+                    buffer = new BufferBuilder(allocator, BOX_PIPELINE.getVertexFormatMode(), BOX_PIPELINE.getVertexFormat());
+                    verticesWritten = 0;
+                }
+
+                double lerpX  = lerp(tickDelta, entity.xOld, entity.getX());
+                double lerpY  = lerp(tickDelta, entity.yOld, entity.getY());
+                double lerpZ  = lerp(tickDelta, entity.zOld, entity.getZ());
+                AABB localBox = worldBox
+                        .move(lerpX - entity.getX(), lerpY - entity.getY(), lerpZ - entity.getZ())
+                        .move(-camX, -camY, -camZ);
+
+                renderBox(new Matrix4f(), buffer, localBox, 1f, 0.5f, 0f, 1f); // orange
+                anyDrawn = true;
+                break;
+            }
+        }
+
+        // ── Fishing origin block highlight (cyan) ────────────────────────────
+        if (EnemyBoxesState.autoFisherEnabled && AutoFisher.originBlock != null) {
+            BlockPos bp = AutoFisher.originBlock;
+            AABB blockBox = new AABB(bp).move(-camX, -camY, -camZ);
+
+            if (buffer == null) {
+                buffer = new BufferBuilder(allocator, BOX_PIPELINE.getVertexFormatMode(), BOX_PIPELINE.getVertexFormat());
+                verticesWritten = 0;
+            }
+            renderBox(new Matrix4f(), buffer, blockBox, 0f, 1f, 1f, 1f);
+            anyDrawn = true;
         }
 
         if (anyDrawn && buffer != null && verticesWritten > 0) {

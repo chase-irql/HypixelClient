@@ -58,7 +58,9 @@ public final class EnemyBoxesState {
     public static boolean shardTrackerEnabled = false;
 
     // Auto-fisher
-    public static boolean autoFisherEnabled = false;
+    public static boolean autoFisherEnabled               = false;
+    public static int     fishingWeaponSlot               = 0;   // hotbar slot 0–8
+    public static boolean autoFisherForcedStopAlertsEnabled = false;
 
     // Auto-clicker
     public static boolean autoClickerEnabled = false;

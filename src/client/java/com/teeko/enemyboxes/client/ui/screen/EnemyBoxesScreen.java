@@ -18,6 +18,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.item.ItemStack;
 
 import java.util.Map;
 
@@ -514,6 +515,44 @@ public final class EnemyBoxesScreen extends Screen {
                     btn.setMessage(Component.literal(PacketLogger.enabled ? "Packet Log: ON" : "Packet Log: OFF"));
                 }
         ).bounds(left, top, PANEL_W, BTN_H).build());
+        top += BTN_H + MARGIN;
+
+        // Weapon slot picker — arrow buttons cycle through hotbar slots 1-9,
+        // showing the item name currently in that slot.
+        int arrowW = 20;
+        int labelW = PANEL_W - 2 * arrowW - 2 * MARGIN;
+        this.addRenderableWidget(Button.builder(
+                Component.literal("<"),
+                btn -> {
+                    EnemyBoxesState.fishingWeaponSlot = (EnemyBoxesState.fishingWeaponSlot + 8) % 9;
+                    EnemyBoxesConfig.save();
+                    rebuildMenu();
+                }
+        ).bounds(left, top, arrowW, BTN_H).build());
+        this.addRenderableWidget(Button.builder(
+                Component.literal(weaponSlotLabel()),
+                btn -> {}
+        ).bounds(left + arrowW + MARGIN, top, labelW, BTN_H).build());
+        this.addRenderableWidget(Button.builder(
+                Component.literal(">"),
+                btn -> {
+                    EnemyBoxesState.fishingWeaponSlot = (EnemyBoxesState.fishingWeaponSlot + 1) % 9;
+                    EnemyBoxesConfig.save();
+                    rebuildMenu();
+                }
+        ).bounds(left + arrowW + MARGIN + labelW + MARGIN, top, arrowW, BTN_H).build());
+    }
+
+    private String weaponSlotLabel() {
+        int slot = EnemyBoxesState.fishingWeaponSlot;
+        String label = "Slot " + (slot + 1);
+        if (this.minecraft != null && this.minecraft.player != null) {
+            ItemStack stack = this.minecraft.player.getInventory().getItem(slot);
+            if (!stack.isEmpty()) {
+                label += " (" + stack.getHoverName().getString() + ")";
+            }
+        }
+        return "Weapon: " + label;
     }
 
     // -------------------------------------------------------------------------

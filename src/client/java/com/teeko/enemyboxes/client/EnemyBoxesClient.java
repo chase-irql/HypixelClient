@@ -4,6 +4,7 @@ import com.teeko.enemyboxes.client.config.EnemyBoxesConfig;
 import com.teeko.enemyboxes.client.debug.DebugDump;
 import com.teeko.enemyboxes.client.feature.beachball.BeachballMacro;
 import com.teeko.enemyboxes.client.feature.fishing.AutoFisher;
+import com.teeko.enemyboxes.client.feature.fishing.FishingCombat;
 import com.teeko.enemyboxes.client.feature.chat.ChatMentionAlerts;
 import com.teeko.enemyboxes.client.feature.chat.ServerShutdownAlerts;
 import com.teeko.enemyboxes.client.feature.hideonleaf.HideonleafHunt;
@@ -32,8 +33,10 @@ public final class EnemyBoxesClient implements ClientModInitializer {
         HudRenderCallback.EVENT.register((guiGraphics, deltaTracker) ->
                 EnemyBoxesHud.render(guiGraphics, deltaTracker.getGameTimeDeltaPartialTick(false)));
 
-        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) ->
-                BeachballMacro.stopIfRunning(client));
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+            BeachballMacro.stopIfRunning(client);
+            AutoFisher.forceStop(client, "Disconnected from server.");
+        });
 
         ClientReceiveMessageEvents.GAME.register((message, overlay) -> {
             if (!overlay) {
@@ -133,7 +136,21 @@ public final class EnemyBoxesClient implements ClientModInitializer {
 
     private static void toggleAutoFisher(Minecraft client) {
         EnemyBoxesState.autoFisherEnabled = !EnemyBoxesState.autoFisherEnabled;
-        if (!EnemyBoxesState.autoFisherEnabled) AutoFisher.reset();
+        if (EnemyBoxesState.autoFisherEnabled) {
+            // Capture origin block and look angles at the exact moment K is pressed.
+            // These are locked in for the entire session — every return after combat
+            // aims back at these same angles regardless of where the camera drifted.
+            if (client.player != null) {
+                AutoFisher.originBlock = client.player.getOnPos();
+                AutoFisher.originYaw   = client.player.getYRot();
+                AutoFisher.originPitch = client.player.getXRot();
+            }
+            // Immediately equip the rod so the first cast doesn't need a manual swap.
+            FishingCombat.swapToRod(client);
+        } else {
+            // Manual disable — reset everything without sending a forced-stop alert.
+            AutoFisher.reset();
+        }
         EnemyBoxesConfig.save();
         if (client.player != null) {
             client.player.displayClientMessage(Component.literal(

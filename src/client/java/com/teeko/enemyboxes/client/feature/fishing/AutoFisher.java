@@ -1,20 +1,24 @@
 package com.teeko.enemyboxes.client.feature.fishing;
 
 import com.teeko.enemyboxes.client.EnemyBoxesClient;
+import com.teeko.enemyboxes.client.config.EnemyBoxesConfig;
+import com.teeko.enemyboxes.client.integration.BotEventClient;
 import com.teeko.enemyboxes.client.mixin.accessor.MinecraftAccessor;
 import com.teeko.enemyboxes.client.state.EnemyBoxesState;
 import net.minecraft.client.Minecraft;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.entity.projectile.FishingHook;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.List;
 import java.util.Random;
 
 public final class AutoFisher {
 
-    private enum State { IDLE, DELAY_BEFORE_CAST, FISHING, DELAY_BEFORE_REEL }
+    private enum State { IDLE, DELAY_BEFORE_CAST, FISHING, DELAY_BEFORE_REEL, COMBAT }
 
     // After casting, wait this long before checking for a bite (avoids splash false-positives).
     private static final long BITE_GRACE_MS = 2000L;
@@ -26,6 +30,17 @@ public final class AutoFisher {
     private static long nextActionMs = 0L;
     private static long hookCastMs = 0L;
 
+    /** Block the player was standing on when autofish was first activated. Null when off. */
+    public static BlockPos originBlock = null;
+
+    /**
+     * Look angles saved when autofish first activated.
+     * Always used as the return target after combat — not the angles at reel-in time,
+     * so the player consistently looks back at the same fishing position each cast.
+     */
+    public static float originYaw   = 0f;
+    public static float originPitch = 0f;
+
     private AutoFisher() {}
 
     public static void tick(Minecraft client) {
@@ -35,17 +50,44 @@ public final class AutoFisher {
         }
 
         if (client.level == null || client.player == null) return;
-        if (!EnemyBoxesClient.isPlayerActive(client)) return;
+
+        // When paused, inventory is open, or chat is open — release movement so the
+        // player has full manual control, but preserve state so combat can resume.
+        if (!EnemyBoxesClient.isPlayerActive(client)) {
+            FishingCombat.releaseMovement();
+            return;
+        }
 
         long now = System.currentTimeMillis();
 
         switch (state) {
             case IDLE -> {
+                // originBlock/Yaw/Pitch are set at the exact moment K is pressed
+                // (see EnemyBoxesClient.toggleAutoFisher). This fallback only fires
+                // if the player somehow reaches IDLE without that capture running.
+                if (originBlock == null) {
+                    originBlock = client.player.getOnPos();
+                    originYaw   = client.player.getYRot();
+                    originPitch = client.player.getXRot();
+                }
+                // Drift correction: walk back to origin before casting if needed.
+                Vec3 originCenter = Vec3.atBottomCenterOf(originBlock);
+                Vec3 playerPos    = client.player.position();
+                double drift = Math.sqrt(
+                        Math.pow(playerPos.x - originCenter.x, 2) +
+                        Math.pow(playerPos.z - originCenter.z, 2));
+                if (drift > 1.2) {
+                    FishingCombat.driveReposition(client, originCenter);
+                    return; // stay in IDLE until back in position
+                }
+                FishingCombat.stopExternalReposition();
                 state = State.DELAY_BEFORE_CAST;
                 nextActionMs = now + randomDelay();
             }
             case DELAY_BEFORE_CAST -> {
                 if (now >= nextActionMs) {
+                    // Ensure the fishing rod is selected before sending the use input.
+                    FishingCombat.swapToRod(client);
                     ((MinecraftAccessor) client).enemyboxes$invokeStartUseItem();
                     hookCastMs = now;
                     state = State.FISHING;
@@ -67,7 +109,18 @@ public final class AutoFisher {
             }
             case DELAY_BEFORE_REEL -> {
                 if (now >= nextActionMs) {
+                    FishingCombat.stopExternalReposition();
                     ((MinecraftAccessor) client).enemyboxes$invokeStartUseItem();
+                    // Always return to the exact K-press block, with the K-press angles.
+                    FishingCombat.startScan(client,
+                            net.minecraft.world.phys.Vec3.atBottomCenterOf(originBlock),
+                            originYaw, originPitch);
+                    state = State.COMBAT;
+                }
+            }
+            case COMBAT -> {
+                FishingCombat.tick(client);
+                if (!FishingCombat.isCombatActive()) {
                     state = State.DELAY_BEFORE_CAST;
                     nextActionMs = now + randomDelay();
                 }
@@ -75,10 +128,51 @@ public final class AutoFisher {
         }
     }
 
+    /**
+     * Full reset — clears all state, origin, and FishingCombat.
+     * Called on manual disable and by forceStop().
+     */
     public static void reset() {
-        state = State.IDLE;
+        state        = State.IDLE;
         nextActionMs = 0L;
-        hookCastMs = 0L;
+        hookCastMs   = 0L;
+        originBlock  = null;
+        originYaw    = 0f;
+        originPitch  = 0f;
+        FishingCombat.reset();
+    }
+
+    /**
+     * Force-stops the auto-fisher due to an external event (server shutdown, world change, etc.)
+     * and queues a Discord alert. Does nothing if the fisher is already off.
+     * Manual disable (keybind) should call reset() directly instead of this.
+     */
+    public static void forceStop(Minecraft client, String reason) {
+        if (!EnemyBoxesState.autoFisherEnabled) return;
+
+        String playerName  = (client != null && client.player != null)
+                ? client.player.getName().getString() : "";
+        String dimensionId = (client != null && client.level != null)
+                ? client.level.dimension().toString() : "";
+        String stateAtStop = getStatus();
+
+        EnemyBoxesState.autoFisherEnabled = false;
+        reset();
+        EnemyBoxesConfig.save();
+
+        if (client != null && client.player != null) {
+            client.player.displayClientMessage(Component.literal(
+                    "[EnemyBoxes] Auto Fish stopped: " + reason
+            ), false);
+        }
+
+        boolean alertQueued = BotEventClient.sendAutoFishForcedStopEvent(
+                playerName, dimensionId, stateAtStop, reason);
+        if (!alertQueued && client != null && client.player != null) {
+            client.player.displayClientMessage(Component.literal(
+                    "[EnemyBoxes] Fishing forced-stop alert not queued. Check bot alert settings."
+            ), false);
+        }
     }
 
     public static String getStatus() {
@@ -87,6 +181,7 @@ public final class AutoFisher {
             case DELAY_BEFORE_CAST -> "CASTING";
             case FISHING -> "FISHING";
             case DELAY_BEFORE_REEL -> "BITING";
+            case COMBAT -> FishingCombat.getState().name();
         };
     }
 

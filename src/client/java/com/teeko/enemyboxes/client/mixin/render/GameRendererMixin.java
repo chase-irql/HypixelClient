@@ -2,6 +2,7 @@ package com.teeko.enemyboxes.client.mixin.render;
 
 import com.teeko.enemyboxes.client.EnemyBoxesClient;
 import com.teeko.enemyboxes.client.combat.AutoClicker;
+import com.teeko.enemyboxes.client.feature.fishing.FishingCombat;
 import com.teeko.enemyboxes.client.feature.lockon.EnemyBoxesAim;
 import com.teeko.enemyboxes.client.feature.lockon.LockOnController;
 import com.teeko.enemyboxes.client.render.world.EnemyBoxesRenderer;
@@ -39,6 +40,28 @@ public class GameRendererMixin {
                 EnemyBoxesAim.aimAtEntity(client, entity);
                 break;
             }
+        }
+
+        // Fish combat aim — same smoothing settings as regular aimbot, always on
+        // during the kill phase regardless of the aimbotEnabled toggle.
+        if (FishingCombat.isAimActive() && EnemyBoxesState.lockedTarget != null) {
+            for (Entity entity : client.level.entitiesForRendering()) {
+                if (!entity.getUUID().equals(EnemyBoxesState.lockedTarget)) continue;
+                if (!(entity instanceof LivingEntity living) || !living.isAlive()) continue;
+                EnemyBoxesAim.aimAtEntity(client, entity);
+                break;
+            }
+        }
+
+        // Fish combat return — smoothly rotates the camera back to the saved fishing
+        // angles whenever we are not actively chasing a creature.  Running this
+        // continuously (not just during RETURNING) means the correction keeps going
+        // even after FishingCombat enters IDLE / DELAY_BEFORE_CAST, so the camera
+        // is always aimed at the fishing spot before the next cast.
+        if (EnemyBoxesState.autoFisherEnabled
+                && FishingCombat.hasFishingTarget()
+                && !FishingCombat.isAimActive()) {
+            EnemyBoxesAim.smoothAimToAngles(client, FishingCombat.getFishingYaw(), FishingCombat.getFishingPitch());
         }
 
         // Hunt aim — aims at the locked shulker bullet without LOS check

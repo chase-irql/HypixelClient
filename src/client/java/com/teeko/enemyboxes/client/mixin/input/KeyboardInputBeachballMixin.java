@@ -1,6 +1,7 @@
 package com.teeko.enemyboxes.client.mixin.input;
 
 import com.teeko.enemyboxes.client.feature.beachball.BeachballMacro;
+import com.teeko.enemyboxes.client.feature.fishing.FishingCombat;
 import com.teeko.enemyboxes.client.mixin.accessor.ClientInputAccessor;
 import net.minecraft.client.player.KeyboardInput;
 import net.minecraft.world.entity.player.Input;
@@ -14,13 +15,16 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public class KeyboardInputBeachballMixin {
 
     @Inject(method = "tick", at = @At("TAIL"))
-    private void enemyboxes$applyBeachballMovement(CallbackInfo ci) {
-        if (!BeachballMacro.shouldOverrideMovement()) return;
-
+    private void enemyboxes$applyMovementOverrides(CallbackInfo ci) {
         ClientInputAccessor accessor = (ClientInputAccessor) this;
-        Vec2 moveVector = BeachballMacro.getDesiredMoveVector();
-        Input input = BeachballMacro.getDesiredInput();
-        accessor.enemyboxes$setKeyPresses(input);
-        accessor.enemyboxes$setMoveVector(moveVector);
+
+        // Fish combat takes priority — it is incompatible with beachball anyway.
+        if (FishingCombat.shouldOverrideMovement()) {
+            accessor.enemyboxes$setKeyPresses(FishingCombat.getDesiredInput());
+            accessor.enemyboxes$setMoveVector(FishingCombat.getDesiredMoveVector());
+        } else if (BeachballMacro.shouldOverrideMovement()) {
+            accessor.enemyboxes$setKeyPresses(BeachballMacro.getDesiredInput());
+            accessor.enemyboxes$setMoveVector(BeachballMacro.getDesiredMoveVector());
+        }
     }
 }

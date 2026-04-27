@@ -2,6 +2,7 @@ package com.teeko.enemyboxes.client.feature.lockon;
 
 import com.teeko.enemyboxes.client.EnemyBoxesClient;
 import com.teeko.enemyboxes.client.combat.AutoClicker;
+import com.teeko.enemyboxes.client.feature.fishing.FishingCombat;
 import com.teeko.enemyboxes.client.feature.hideonleaf.HideonleafHunt;
 import com.teeko.enemyboxes.client.mixin.accessor.MinecraftAccessor;
 import com.teeko.enemyboxes.client.state.EnemyBoxesState;
@@ -413,6 +414,10 @@ public final class LockOnController {
     }
 
     private static UUID getAutoSwingTarget() {
+        // Fish combat always gets auto-swing regardless of the toggle setting.
+        if (FishingCombat.isKilling() && EnemyBoxesState.lockedTarget != null) {
+            return EnemyBoxesState.lockedTarget;
+        }
         if (EnemyBoxesState.autoSwingEnabled && EnemyBoxesState.lockedTarget != null) {
             return EnemyBoxesState.lockedTarget;
         }

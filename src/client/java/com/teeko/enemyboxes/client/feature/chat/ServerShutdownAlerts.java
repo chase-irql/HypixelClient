@@ -1,6 +1,7 @@
 package com.teeko.enemyboxes.client.feature.chat;
 
 import com.teeko.enemyboxes.client.feature.beachball.BeachballMacro;
+import com.teeko.enemyboxes.client.feature.fishing.AutoFisher;
 import com.teeko.enemyboxes.client.integration.BotEventClient;
 import com.teeko.enemyboxes.client.state.EnemyBoxesState;
 import net.minecraft.client.Minecraft;
@@ -32,6 +33,7 @@ public final class ServerShutdownAlerts {
         }
 
         BeachballMacro.requestStopAfterCurrentRound(client, "Server shutdown warning detected.");
+        AutoFisher.forceStop(client, "Server shutdown warning detected.");
 
         if (!EnemyBoxesState.serverShutdownAlertsEnabled || client.player == null) {
             return;

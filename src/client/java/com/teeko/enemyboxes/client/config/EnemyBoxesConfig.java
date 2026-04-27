@@ -89,6 +89,8 @@ public final class EnemyBoxesConfig {
         String  beachballForcedStopDiscordUserId = "";
         // Auto-fisher
         boolean autoFisherEnabled = false;
+        int     fishingWeaponSlot = 0;
+        Boolean autoFisherForcedStopAlertsEnabled = null;
         // Auto-clicker
         boolean autoClickerEnabled = false;
         int     acCpsMin           = 7;
@@ -137,7 +139,9 @@ public final class EnemyBoxesConfig {
         d.alertServerSecret = EnemyBoxesState.alertServerSecret;
         d.alertAuthToken = EnemyBoxesState.alertAuthToken;
         d.alertAuthMinecraftUuid = EnemyBoxesState.alertAuthMinecraftUuid;
-        d.autoFisherEnabled      = EnemyBoxesState.autoFisherEnabled;
+        d.autoFisherEnabled                    = EnemyBoxesState.autoFisherEnabled;
+        d.fishingWeaponSlot                    = EnemyBoxesState.fishingWeaponSlot;
+        d.autoFisherForcedStopAlertsEnabled    = EnemyBoxesState.autoFisherForcedStopAlertsEnabled;
         d.autoClickerEnabled     = EnemyBoxesState.autoClickerEnabled;
         d.acCpsMin               = EnemyBoxesState.acCpsMin;
         d.acCpsMode              = EnemyBoxesState.acCpsMode;
@@ -197,6 +201,7 @@ public final class EnemyBoxesConfig {
             applyAlertSettings(d);
             EnemyBoxesState.beachballMacroRunning  = false;
             EnemyBoxesState.autoFisherEnabled      = d.autoFisherEnabled;
+            EnemyBoxesState.fishingWeaponSlot      = Math.max(0, Math.min(8, d.fishingWeaponSlot));
             EnemyBoxesState.autoClickerEnabled     = d.autoClickerEnabled;
             EnemyBoxesState.acCpsMin               = d.acCpsMin;
             EnemyBoxesState.acCpsMode              = d.acCpsMode;
@@ -245,6 +250,11 @@ public final class EnemyBoxesConfig {
                 d.serverShutdownAlertsEnabled,
                 null,
                 true
+        );
+        EnemyBoxesState.autoFisherForcedStopAlertsEnabled = resolveBoolean(
+                d.autoFisherForcedStopAlertsEnabled,
+                null,
+                false
         );
         EnemyBoxesState.alertServerUrl = resolveAlertServerUrl(d);
         EnemyBoxesState.alertServerSecret = sanitize(d.alertServerSecret);

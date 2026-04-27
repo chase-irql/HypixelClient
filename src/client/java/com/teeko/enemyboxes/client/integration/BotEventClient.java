@@ -82,6 +82,32 @@ public final class BotEventClient {
         return true;
     }
 
+    public static boolean sendAutoFishForcedStopEvent(
+            String playerName,
+            String dimensionId,
+            String stateAtStop,
+            String reason
+    ) {
+        AlertSettings settings = loadAlertSettings(() -> EnemyBoxesState.autoFisherForcedStopAlertsEnabled);
+        if (!settings.enabled || settings.eventEndpointUrl.isEmpty()) {
+            return false;
+        }
+
+        PlayerIdentity playerIdentity = capturePlayerIdentity();
+        if (playerIdentity == null) {
+            System.err.println("[EnemyBoxes] Bot event not sent: unable to read Minecraft session.");
+            return false;
+        }
+
+        JsonObject data = new JsonObject();
+        data.addProperty("playerName", fallback(playerName, "unknown"));
+        data.addProperty("stateAtStop", fallback(stateAtStop, "unknown"));
+        data.addProperty("dimensionId", sanitize(dimensionId));
+        data.addProperty("reason", fallback(reason, "Auto fish macro force stopped."));
+        queueEvent(settings, "fishing_stop", data, playerIdentity);
+        return true;
+    }
+
     public static boolean sendChatMentionEvent(String localUsername, String senderName, String messageText) {
         return sendChatMentionEvent(localUsername, senderName, messageText, false);
     }

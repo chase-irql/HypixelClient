@@ -58,6 +58,31 @@ public final class EnemyBoxesAim {
     }
 
     /**
+     * Smoothly rotates the camera toward a fixed yaw/pitch target.
+     * Used to return to the saved fishing look angles after combat.
+     * No drift or jitter — pure interpolation using the same triangular smoothing.
+     */
+    public static void smoothAimToAngles(Minecraft client, float targetYaw, float targetPitch) {
+        if (client.player == null) return;
+
+        float curYaw   = client.player.getYRot();
+        float curPitch = client.player.getXRot();
+
+        float smoothing = nextTriangularSmoothing();
+        float speed = 1.0f - smoothing;
+
+        float yawDiff = targetYaw - curYaw;
+        while (yawDiff >  180f) yawDiff -= 360f;
+        while (yawDiff < -180f) yawDiff += 360f;
+
+        float newYaw   = curYaw + yawDiff * speed;
+        float newPitch = curPitch + (targetPitch - curPitch) * speed;
+        newPitch = Math.max(-90f, Math.min(90f, newPitch));
+
+        applyViewRotation(client, newYaw, newPitch);
+    }
+
+    /**
      * Aim at an arbitrary world position with no line-of-sight check.
      * Used for the hunt mode to track projectiles without LOS enforcement.
      */
