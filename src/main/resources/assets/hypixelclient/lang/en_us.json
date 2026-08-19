@@ -1,0 +1,9 @@
+{
+  "key.category.hypixelclient.controls": "HypixelClient",
+  "key.hypixelclient.open_menu": "Open HypixelClient Menu",
+  "key.hypixelclient.lock_on": "Hold Lock On",
+  "key.hypixelclient.debug": "Debug Dump",
+  "key.hypixelclient.toggle_auto_hunt": "Toggle Auto Hunt",
+  "key.hypixelclient.toggle_beachball": "Toggle Beachball Macro",
+  "key.hypixelclient.toggle_autofish": "Toggle Auto Fish"
+}

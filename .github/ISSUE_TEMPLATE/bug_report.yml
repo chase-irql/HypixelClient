@@ -1,0 +1,55 @@
+name: Bug report
+description: Report a reproducible problem in HypixelClient
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Never paste access tokens, alert secrets, or an unredacted `hypixelclient.json`.
+  - type: input
+    id: hypixelclient-version
+    attributes:
+      label: HypixelClient version
+      placeholder: 1.0.0
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Minecraft, Fabric Loader, Fabric API, Java, and operating-system versions
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the expected and actual behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Enable ...
+        2. Press ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted logs
+      description: Attach only the relevant log or crash-report excerpt after removing credentials and personal data.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I reproduced this on the latest release.
+          required: true
+        - label: I removed credentials and personal data from this report.
+          required: true
